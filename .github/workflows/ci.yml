@@ -20,3 +20,13 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      - name: Run versioned incident corpus
+        run: make corpus
+      - name: Upload corpus evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kestrel-corpus-v1-${{ github.sha }}
+          path: .kestrel/corpus-runs/
+          if-no-files-found: error
+          retention-days: 14

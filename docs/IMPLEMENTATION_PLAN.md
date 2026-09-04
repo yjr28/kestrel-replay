@@ -66,7 +66,7 @@ Still required:
 
 ## Milestone 5 — fault corpus + richer replay
 
-**Status: in progress**
+**Status: v1 replay-regression corpus complete; broader fault coverage remains in progress**
 
 Completed:
 
@@ -77,9 +77,12 @@ Completed:
 - evidence-first duplicate injection: collector acceptance of the fault record is required before the broker enqueues the duplicated envelope;
 - duplicate fan-out preserves the original message ID and delivers two copies to each notification/audit/analytics worker;
 - canonical async message-delivery signature counting publishes and per-service consumes while ignoring generated IDs/timestamps;
-- artifact replay now requires both external outcome parity and async-delivery parity;
+- artifact replay requires both external outcome parity and async-delivery parity;
 - duplicate integration proof of one publish, two consumes per worker, and six graph message edges;
-- validation rejects unimplemented kinds and enforces ownership boundaries between service-local, orchestrator, and broker injectors.
+- validation rejects unimplemented kinds and enforces ownership boundaries between service-local, orchestrator, and broker injectors;
+- immutable versioned `v1` incident definitions for the four supported slices;
+- corpus runner that records each case, validates observed evidence before persistence, reloads checksum-verified artifacts, invokes the separate replay executable, and reports per-case replay parity;
+- CI replay-regression gate that executes the corpus and retains the complete corpus-run directory as a GitHub Actions artifact even when the corpus step fails.
 
 Still required:
 
@@ -87,10 +90,9 @@ Still required:
 - explicit RPC-timeout fault class;
 - delayed async message;
 - controlled message reordering and Level-C semantics;
-- packet-loss mechanism if defensibly targetable;
-- immutable versioned incident corpus and replay-regression runner.
+- packet-loss mechanism if defensibly targetable.
 
-Exit gate: fixed corpus with automated replay pass/fail artifacts.
+The v1 corpus exit gate is met: the fixed four-case corpus has automated pass/fail execution and retained replay evidence. This is a regression gate, not a publishable replay-success benchmark.
 
 ## Milestone 6 — causal divergence v2
 
