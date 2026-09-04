@@ -200,8 +200,9 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 			continue
 		}
 		topic := event.Attributes["topic"]
+		messageID := event.Attributes["message.id"]
 		action := event.Attributes["message.action"]
-		if topic == "" || (action != "publish" && action != "consume") {
+		if topic == "" || messageID == "" || (action != "publish" && action != "consume") {
 			continue
 		}
 		key := messageFlowKey{topic: topic, action: action, service: event.Service}
