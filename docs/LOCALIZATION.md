@@ -26,13 +26,15 @@ Tie-breaking is deterministic by service, operation, then reason.
 
 ## Async message-topology evidence
 
-Kestrel also builds an empirical message-topology profile from the same healthy-run set. For each `(topic, action, service)` flow it records the observed count envelope and compares failing evidence against that envelope.
+Kestrel also builds an empirical message-topology profile from the same healthy-run set. For each `(topic, action, service)` flow it records the observed count envelope plus per-run evidence: the count and exact application event IDs observed in each healthy run. An absent flow in a particular healthy run is represented explicitly as a zero count with no event IDs.
 
-`graph.CompareMessageTopology` reports only application message evidence and includes the exact failing event IDs that support a multiplicity divergence. It can distinguish:
+`graph.CompareMessageTopology` reports only application message evidence. For flows that exceed or fall below a healthy envelope, the divergence carries the per-run healthy evidence and the exact failing event IDs. For a flow never seen in the healthy profile, the divergence carries an explicit zero-count record for every healthy run together with the failing events that establish the newly observed flow. It can distinguish:
 
 - count above the healthy range;
 - count below the healthy range;
 - an unexpected message flow.
+
+These records establish observed topology differences; they do not by themselves identify which infrastructure component caused the difference.
 
 The current duplicate-delivery corpus case is evaluated with seeded truth outside the graph comparator. The expected observation is one `orders.completed` publish and duplicated consumes at notification, audit, and analytics. This is a structural regression check; it does not claim that consumer-side multiplicity alone identifies an infrastructure root cause.
 
