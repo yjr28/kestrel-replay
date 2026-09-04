@@ -163,10 +163,14 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	if terminalService != "" {
 		anchor := "outcome.terminal_service=" + terminalService
 		for _, h := range model.Sorted(healthy) {
-			if h.Kind != model.KindSpan || h.Source != model.SourceApplication || strings.TrimSpace(h.ID) == "" || h.Service != terminalService {
+			if h.Kind != model.KindSpan || h.Source != model.SourceApplication || h.Service != terminalService {
 				continue
 			}
 			key := divergenceKey{service: h.Service, operation: h.Operation}
+			indexedHealthy, eligible := healthySpans[key]
+			if !eligible || indexedHealthy.ID != h.ID {
+				continue
+			}
 			if _, ambiguous := healthyAmbiguous[key]; ambiguous {
 				continue
 			}
@@ -191,10 +195,14 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	}
 
 	for _, e := range model.Sorted(failing) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication {
 			continue
 		}
 		key := divergenceKey{service: e.Service, operation: e.Operation}
+		indexedFailing, eligible := failingSpans[key]
+		if !eligible || indexedFailing.ID != e.ID {
+			continue
+		}
 		if _, ambiguous := failingAmbiguous[key]; ambiguous {
 			continue
 		}
@@ -218,10 +226,14 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	}
 
 	for _, h := range model.Sorted(healthy) {
-		if h.Kind != model.KindSpan || h.Source != model.SourceApplication || strings.TrimSpace(h.ID) == "" {
+		if h.Kind != model.KindSpan || h.Source != model.SourceApplication {
 			continue
 		}
 		key := divergenceKey{service: h.Service, operation: h.Operation}
+		indexedHealthy, eligible := healthySpans[key]
+		if !eligible || indexedHealthy.ID != h.ID {
+			continue
+		}
 		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
 			continue
 		}
