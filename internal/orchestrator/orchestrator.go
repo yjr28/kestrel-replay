@@ -125,6 +125,11 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 			return Result{}, err
 		}
 	}
+	serviceNames := []string{"gateway", "auth", "account", "order", "inventory", "pricing", "payment", "notification", "audit", "analytics"}
+	if err := flushTelemetry(ctx, serviceNames, url, 4*time.Second); err != nil {
+		return Result{}, err
+	}
+
 	minimum := 14
 	if spec != nil {
 		minimum = 6
@@ -250,6 +255,31 @@ func waitBrokerIdle(ctx context.Context, baseURL string, minDelivered uint64, ti
 		time.Sleep(20 * time.Millisecond)
 	}
 	return fmt.Errorf("broker did not drain")
+}
+
+func flushTelemetry(ctx context.Context, names []string, url func(string) string, timeout time.Duration) error {
+	drainCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	client := &http.Client{Timeout: timeout}
+	for _, name := range names {
+		req, err := http.NewRequestWithContext(drainCtx, http.MethodPost, url(name)+"/telemetry/flush", nil)
+		if err != nil {
+			return fmt.Errorf("build %s telemetry flush: %w", name, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("flush %s telemetry: %w", name, err)
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		resp.Body.Close()
+		if readErr != nil {
+			return fmt.Errorf("read %s telemetry flush response: %w", name, readErr)
+		}
+		if resp.StatusCode/100 != 2 {
+			return fmt.Errorf("flush %s telemetry: status=%d body=%s", name, resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+	}
+	return nil
 }
 
 func waitEvents(ctx context.Context, baseURL, requestID string, minimum int, timeout time.Duration) ([]model.Event, error) {

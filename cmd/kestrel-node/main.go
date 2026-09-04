@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -68,7 +69,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		handler = app.Handler()
+		handler = withTelemetryBarrier(app.Handler(), exporter)
 		cleanup = exporter.Close
 	default:
 		log.Fatal("-mode must be collector, broker, or service")
@@ -104,6 +105,46 @@ func main() {
 		}
 	}
 	fmt.Println("kestrel node stopped")
+}
+
+// withTelemetryBarrier keeps the application handler asynchronous during normal
+// requests while providing the experiment harness a deterministic evidence
+// boundary. The flush endpoint itself is intentionally outside application
+// instrumentation and waits until all application handlers have returned before
+// draining the exporter's accepted-event set.
+func withTelemetryBarrier(app http.Handler, exporter *telemetry.Exporter) http.Handler {
+	var active atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /telemetry/flush", func(w http.ResponseWriter, r *http.Request) {
+		ticker := time.NewTicker(2 * time.Millisecond)
+		defer ticker.Stop()
+		for active.Load() != 0 {
+			select {
+			case <-r.Context().Done():
+				http.Error(w, "active request drain: "+r.Context().Err().Error(), http.StatusGatewayTimeout)
+				return
+			case <-ticker.C:
+			}
+		}
+		if err := exporter.Flush(r.Context()); err != nil {
+			http.Error(w, "telemetry drain: "+err.Error(), http.StatusGatewayTimeout)
+			return
+		}
+		sent, dropped, errs, queued := exporter.Stats()
+		if dropped != 0 || errs != 0 || queued != 0 || exporter.Pending() != 0 {
+			http.Error(w, fmt.Sprintf("telemetry incomplete sent=%d dropped=%d errors=%d queued=%d pending=%d", sent, dropped, errs, queued, exporter.Pending()), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("X-Kestrel-Telemetry-Sent", fmt.Sprintf("%d", sent))
+		w.Header().Set("X-Kestrel-Telemetry-Retries", fmt.Sprintf("%d", exporter.Retries()))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		active.Add(1)
+		defer active.Add(-1)
+		app.ServeHTTP(w, r)
+	}))
+	return mux
 }
 
 func nonEmpty(values []string) []string {
