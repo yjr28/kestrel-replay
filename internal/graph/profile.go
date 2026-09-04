@@ -42,8 +42,9 @@ type healthySpanSample struct {
 
 // BuildHealthyProfile builds a deterministic profile from at least two healthy
 // executions. Application spans without event identity are ineligible evidence.
-// Duplicate eligible application spans for the same service/operation in one
-// run are rejected because the current v1 profile does not model retries yet.
+// Duplicate eligible application spans for the same service/operation, or reused
+// eligible event IDs, in one run are rejected because the current v1 profile
+// cannot assign exact provenance to either ambiguity.
 func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 	if len(runs) < 2 {
 		return HealthyProfile{}, fmt.Errorf("healthy profile requires at least two runs")
@@ -52,10 +53,15 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 	observed := make(map[divergenceKey]struct{})
 	for runIndex, run := range runs {
 		seen := make(map[divergenceKey]struct{})
+		seenEventIDs := make(map[string]struct{})
 		for _, event := range model.Sorted(run) {
 			if event.Kind != model.KindSpan || event.Source != model.SourceApplication || strings.TrimSpace(event.ID) == "" {
 				continue
 			}
+			if _, ok := seenEventIDs[event.ID]; ok {
+				return HealthyProfile{}, fmt.Errorf("healthy run %d reuses application span event id %q", runIndex, event.ID)
+			}
+			seenEventIDs[event.ID] = struct{}{}
 			key := divergenceKey{service: event.Service, operation: event.Operation}
 			if _, ok := seen[key]; ok {
 				return HealthyProfile{}, fmt.Errorf("healthy run %d contains duplicate application span %s/%s", runIndex, key.service, key.operation)
