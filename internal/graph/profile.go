@@ -22,6 +22,7 @@ type SpanBaseline struct {
 	MedianDuration        time.Duration `json:"median_duration,omitempty"`
 	MedianAbsDeviation    time.Duration `json:"median_abs_deviation,omitempty"`
 	RepresentativeEventID string        `json:"representative_event_id,omitempty"`
+	HealthyEventIDs       []string      `json:"healthy_event_ids,omitempty"`
 }
 
 // HealthyProfile contains only topology keys present in every supplied healthy
@@ -72,6 +73,10 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 			continue
 		}
 		baseline := SpanBaseline{Service: key.service, Operation: key.operation, SampleCount: len(samples)}
+		baseline.HealthyEventIDs = make([]string, 0, len(samples))
+		for _, sample := range samples {
+			baseline.HealthyEventIDs = append(baseline.HealthyEventIDs, sample.event.ID)
+		}
 		baseline.Status = samples[0].event.Status
 		baseline.StatusStable = true
 		for _, sample := range samples[1:] {
@@ -116,6 +121,7 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 func (p HealthyProfile) Baselines() []SpanBaseline {
 	out := make([]SpanBaseline, 0, len(p.baselines))
 	for _, baseline := range p.baselines {
+		baseline.HealthyEventIDs = append([]string(nil), baseline.HealthyEventIDs...)
 		out = append(out, baseline)
 	}
 	sort.Slice(out, func(i, j int) bool {
