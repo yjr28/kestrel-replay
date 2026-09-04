@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/yjr28/kestrel-replay/internal/model"
@@ -39,7 +40,8 @@ type healthySpanSample struct {
 }
 
 // BuildHealthyProfile builds a deterministic profile from at least two healthy
-// executions. Duplicate application spans for the same service/operation in one
+// executions. Application spans without event identity are ineligible evidence.
+// Duplicate eligible application spans for the same service/operation in one
 // run are rejected because the current v1 profile does not model retries yet.
 func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 	if len(runs) < 2 {
@@ -50,7 +52,7 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 	for runIndex, run := range runs {
 		seen := make(map[divergenceKey]struct{})
 		for _, event := range model.Sorted(run) {
-			if event.Kind != model.KindSpan || event.Source != model.SourceApplication {
+			if event.Kind != model.KindSpan || event.Source != model.SourceApplication || strings.TrimSpace(event.ID) == "" {
 				continue
 			}
 			key := divergenceKey{service: event.Service, operation: event.Operation}
