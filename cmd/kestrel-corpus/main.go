@@ -14,6 +14,7 @@ import (
 
 	"github.com/yjr28/kestrel-replay/internal/corpus"
 	"github.com/yjr28/kestrel-replay/internal/experiment"
+	"github.com/yjr28/kestrel-replay/internal/fault"
 	"github.com/yjr28/kestrel-replay/internal/graph"
 	"github.com/yjr28/kestrel-replay/internal/model"
 	"github.com/yjr28/kestrel-replay/internal/orchestrator"
@@ -21,7 +22,7 @@ import (
 )
 
 const (
-	reportSchemaVersion = 4
+	reportSchemaVersion = 5
 	healthyProfileRuns  = 3
 )
 
@@ -31,6 +32,10 @@ type artifactReplayReport struct {
 	RecordedMessages     replay.MessageDeliverySignature `json:"recorded_message_delivery"`
 	ReplayedMessages     replay.MessageDeliverySignature `json:"replayed_message_delivery"`
 	MessageDeliveryMatch bool                            `json:"message_delivery_match"`
+	RecordedMessageDelay replay.MessageDelaySignature    `json:"recorded_message_delay"`
+	ReplayedMessageDelay replay.MessageDelaySignature    `json:"replayed_message_delay"`
+	MessageDelayEligible bool                            `json:"message_delay_eligible"`
+	MessageDelayMatch    bool                            `json:"message_delay_match"`
 	ReplayMatch          bool                            `json:"replay_match"`
 }
 
@@ -49,10 +54,14 @@ type caseReport struct {
 	EventsSHA256               string                            `json:"events_sha256,omitempty"`
 	RecordedOutcome            replay.OutcomeSignature           `json:"recorded_outcome"`
 	RecordedMessages           replay.MessageDeliverySignature   `json:"recorded_message_delivery"`
+	RecordedMessageDelay       replay.MessageDelaySignature      `json:"recorded_message_delay"`
 	ReplayedOutcome            replay.OutcomeSignature           `json:"replayed_outcome"`
 	ReplayedMessages           replay.MessageDeliverySignature   `json:"replayed_message_delivery"`
+	ReplayedMessageDelay       replay.MessageDelaySignature      `json:"replayed_message_delay"`
 	OutcomeMatch               bool                              `json:"outcome_match"`
 	MessageMatch               bool                              `json:"message_delivery_match"`
+	MessageDelayEligible       bool                              `json:"message_delay_eligible"`
+	MessageDelayMatch          bool                              `json:"message_delay_match"`
 	ReplayMatch                bool                              `json:"replay_match"`
 	LocalizationEligible       bool                              `json:"localization_eligible"`
 	ExpectedLocalization       *corpus.LocalizationTruth         `json:"expected_localization,omitempty"`
@@ -83,6 +92,8 @@ type corpusReport struct {
 	LocalizationTop3Count        int                         `json:"localization_top3_count"`
 	MessageTopologyEligibleCount int                         `json:"message_topology_eligible_count"`
 	MessageTopologyPassedCount   int                         `json:"message_topology_passed_count"`
+	MessageDelayEligibleCount    int                         `json:"message_delay_eligible_count"`
+	MessageDelayPassedCount      int                         `json:"message_delay_passed_count"`
 	HealthyProfileRunCount       int                         `json:"healthy_profile_run_count"`
 	HealthyBaselines             []healthyBaselineReport     `json:"healthy_baselines"`
 	HealthyProfile               []graph.SpanBaseline        `json:"healthy_profile"`
@@ -167,6 +178,12 @@ func main() {
 				report.MessageTopologyPassedCount++
 			}
 		}
+		if cr.MessageDelayEligible {
+			report.MessageDelayEligibleCount++
+			if cr.MessageDelayMatch {
+				report.MessageDelayPassedCount++
+			}
+		}
 		if cr.RegressionPass {
 			report.PassedCount++
 		} else {
@@ -185,12 +202,13 @@ func main() {
 			log.Fatal(err)
 		}
 	} else {
-		fmt.Printf("corpus=%s run=%s cases=%d passed=%d failed=%d replay=%d/%d healthy_profile_runs=%d localization_top1=%d/%d localization_top3=%d/%d message_topology=%d/%d report=%s\n",
+		fmt.Printf("corpus=%s run=%s cases=%d passed=%d failed=%d replay=%d/%d healthy_profile_runs=%d localization_top1=%d/%d localization_top3=%d/%d message_topology=%d/%d message_delay=%d/%d report=%s\n",
 			report.CorpusVersion, report.RunID, report.CaseCount, report.PassedCount, report.FailedCount,
 			report.ReplayPassedCount, report.CaseCount, report.HealthyProfileRunCount,
 			report.LocalizationTop1Count, report.LocalizationEligibleCount,
 			report.LocalizationTop3Count, report.LocalizationEligibleCount,
 			report.MessageTopologyPassedCount, report.MessageTopologyEligibleCount,
+			report.MessageDelayPassedCount, report.MessageDelayEligibleCount,
 			report.ReportPath,
 		)
 		for _, c := range report.Cases {
@@ -200,6 +218,9 @@ func main() {
 			}
 			if c.MessageTopologyEligible {
 				fmt.Printf(" message_topology_match=%t", c.MessageTopologyMatch)
+			}
+			if c.MessageDelayEligible {
+				fmt.Printf(" message_delay_match=%t recorded_min_delay_us=%d replayed_min_delay_us=%d", c.MessageDelayMatch, c.RecordedMessageDelay.MinConsumeDelayMicros, c.ReplayedMessageDelay.MinConsumeDelayMicros)
 			}
 			if c.Error != "" {
 				fmt.Printf(" error=%q", c.Error)
@@ -256,7 +277,7 @@ func recordHealthyBaselines(node, artifactRoot, runID string, count int) ([]heal
 }
 
 func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyProfile, messageProfile graph.MessageTopologyProfile, c corpus.Case) caseReport {
-	cr := caseReport{CaseID: c.ID, FaultKind: string(c.Fault.Kind)}
+	cr := caseReport{CaseID: c.ID, FaultKind: string(c.Fault.Kind), MessageDelayEligible: c.Fault.Kind == fault.DelayedMessage}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	result, err := orchestrator.RunScenario(ctx, node, &c.Fault, "corpus-"+runID+"-"+c.ID)
 	cancel()
@@ -266,6 +287,7 @@ func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyP
 	}
 	cr.RecordedOutcome = result.Outcome
 	cr.RecordedMessages = replay.MessageDelivery(result.Events, corpus.Topic)
+	cr.RecordedMessageDelay = replay.MessageDelay(result.Events, corpus.Topic)
 	if err := corpus.ValidateObserved(c, result.Outcome, result.Events); err != nil {
 		cr.Error = "validate recorded evidence: " + err.Error()
 		return cr
@@ -297,6 +319,7 @@ func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyP
 	cr.EventsSHA256 = artifact.Manifest.EventsSHA256
 	cr.RecordedOutcome = artifact.Manifest.Outcome
 	cr.RecordedMessages = replay.MessageDelivery(artifact.Events, corpus.Topic)
+	cr.RecordedMessageDelay = replay.MessageDelay(artifact.Events, corpus.Topic)
 
 	if truth, ok := corpus.ExpectedLocalization(c); ok {
 		cr.LocalizationEligible = true
@@ -341,13 +364,17 @@ func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyP
 	}
 	cr.ReplayedOutcome = rr.ReplayedOutcome
 	cr.ReplayedMessages = rr.ReplayedMessages
+	cr.ReplayedMessageDelay = rr.ReplayedMessageDelay
 	cr.OutcomeMatch = replay.Equivalent(cr.RecordedOutcome, cr.ReplayedOutcome)
 	cr.MessageMatch = replay.EquivalentMessageDelivery(cr.RecordedMessages, cr.ReplayedMessages)
-	cr.ReplayMatch = rr.ReplayMatch && rr.MessageDeliveryMatch && cr.OutcomeMatch && cr.MessageMatch
+	if cr.MessageDelayEligible {
+		cr.MessageDelayMatch = rr.MessageDelayEligible && rr.MessageDelayMatch && replay.MeetsMinimumMessageDelay(cr.RecordedMessageDelay, c.Fault.Delay) && replay.MeetsMinimumMessageDelay(cr.ReplayedMessageDelay, c.Fault.Delay)
+	}
+	cr.ReplayMatch = rr.ReplayMatch && rr.MessageDeliveryMatch && cr.OutcomeMatch && cr.MessageMatch && (!cr.MessageDelayEligible || cr.MessageDelayMatch)
 	if !cr.ReplayMatch {
 		appendCaseError(&cr, "replayed evidence did not match recorded artifact")
 	}
-	cr.RegressionPass = cr.ReplayMatch && (!cr.LocalizationEligible || cr.LocalizationTop1) && (!cr.MessageTopologyEligible || cr.MessageTopologyMatch)
+	cr.RegressionPass = cr.ReplayMatch && (!cr.LocalizationEligible || cr.LocalizationTop1) && (!cr.MessageTopologyEligible || cr.MessageTopologyMatch) && (!cr.MessageDelayEligible || cr.MessageDelayMatch)
 	return cr
 }
 
