@@ -30,7 +30,7 @@ A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually
 | service restart | planned; rejected by current validator | Level B |
 | RPC timeout | planned; rejected by current validator | Level B |
 | duplicate message | implemented for broker `orders.completed` fan-out | Level B schedule replay with async-delivery evidence parity |
-| delayed message | planned; rejected by current validator | Level B/C |
+| delayed message | implemented for broker `orders.completed` fan-out | Level B schedule replay with async-delivery and minimum-delay evidence parity |
 | reordered async messages | planned; rejected by current validator | Level C where broker/test harness permits ordering control |
 
 ## Implemented latency fault
@@ -67,7 +67,17 @@ The synchronous create-order request still returns HTTP 201. Therefore HTTP outc
 
 The tested duplicate signature is one publish and two consumes at each of notification, audit, and analytics. The persisted causal graph contains six message edges from the one publisher to six consume events. Artifact replay succeeds only when both the external outcome and canonical async-delivery signature match the recorded incident.
 
-The in-service controller rejects duplicate-message specs because the broker owns async delivery scheduling. Delayed/reordered delivery is not yet implemented or implied by this slice.
+The in-service controller rejects duplicate-message specs because the broker owns async delivery scheduling.
+
+## Implemented delayed-message fault
+
+The delayed-message slice is also broker-owned and currently targets `broker/orders.completed` with `trigger_on_match=1`. The configured delay must be positive; delayed-message jitter is deliberately rejected until its replay semantics are defined and tested.
+
+When the trigger fires, the broker records the delayed-message fault evidence before applying the schedule. The synchronous create-order request remains successful, and delivery multiplicity stays at one consume per notification, audit, and analytics worker.
+
+Replay validation does not treat a matching HTTP result or matching delivery counts as sufficient evidence. Kestrel correlates the publish and consume events by message identity, derives a canonical minimum consume-delay signature, and requires both the recorded incident and the replay to meet the configured minimum delay. The current `v2` corpus adds one `orders.completed` delayed-delivery case while preserving the original `v1` four-case definitions unchanged.
+
+This is a tested broker delay slice, not a claim of arbitrary queue timing determinism, jitter replay, message reordering, or Level-C replay.
 
 ## What the seed does not guarantee
 
@@ -75,11 +85,11 @@ A seed does not make Linux scheduling, TCP behavior, GC, or arbitrary concurrenc
 
 ## Corpus policy
 
-A future incident corpus should use immutable experiment manifests. A case is only counted in replay-rate metrics if:
+The incident corpus uses immutable experiment manifests. A case is only counted in replay-regression output if:
 
 1. the original failure was actually observed;
 2. the replay was executed from its recorded manifest;
 3. the replay result was compared by the documented outcome/evidence-signature rules;
 4. pass/fail output is retained as an artifact.
 
-Unsupported or flaky cases remain in the corpus with their limitations; they are not silently removed from the denominator after the fact.
+Unsupported or flaky cases must not be silently removed from a historical corpus version after the fact. New supported slices are added through a new corpus version so older definitions remain reproducible.

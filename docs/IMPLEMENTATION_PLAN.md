@@ -67,7 +67,7 @@ Still required:
 
 ## Milestone 5 — fault corpus + richer replay
 
-**Status: v1 replay-regression corpus complete; broader fault coverage remains in progress**
+**Status: v2 replay-regression corpus complete for five supported slices; broader fault coverage remains in progress**
 
 Completed:
 
@@ -80,20 +80,21 @@ Completed:
 - canonical async message-delivery signature counting publishes and per-service consumes while ignoring generated IDs/timestamps;
 - artifact replay requires both external outcome parity and async-delivery parity;
 - duplicate integration proof of one publish, two consumes per worker, and six graph message edges;
+- broker-owned `delayed_message` schedule for `orders.completed` with positive configured delay and no jitter;
+- delayed-delivery evidence correlated by message identity, with replay requiring unchanged delivery multiplicity plus a minimum consume-delay threshold in both the recorded artifact and replay;
+- immutable versioned `v1` incident definitions for the original four supported slices and additive `v2` corpus definition containing the delayed-delivery slice;
 - validation rejects unimplemented kinds and enforces ownership boundaries between service-local, orchestrator, and broker injectors;
-- immutable versioned `v1` incident definitions for the four supported slices;
 - corpus runner that records each case, validates observed evidence before persistence, reloads checksum-verified artifacts, invokes the separate replay executable, and reports per-case replay parity;
-- CI replay-regression gate that executes the corpus and retains the complete corpus-run directory as a GitHub Actions artifact even when the corpus step fails.
+- CI replay-regression gate that executes the current versioned corpus and retains the complete corpus-run directory as a GitHub Actions artifact even when the corpus step fails.
 
 Still required:
 
 - service restart and broader crash timing;
 - explicit RPC-timeout fault class;
-- delayed async message;
 - controlled message reordering and Level-C semantics;
 - packet-loss mechanism if defensibly targetable.
 
-The v1 corpus exit gate is met: the fixed four-case corpus has automated pass/fail execution and retained replay evidence. This is a regression gate, not a publishable replay-success benchmark.
+The immutable v1 corpus exit gate remains met for its fixed four cases. The current v2 corpus adds delayed async delivery as a fifth tested slice. Corpus results are regression observations, not publishable replay-success benchmarks.
 
 ## Milestone 6 — causal divergence v2
 
@@ -114,7 +115,8 @@ Completed so far:
 - empirical message-topology profiles across the same healthy-run set using `(topic, action, service)` count envelopes;
 - direct message-topology divergence evidence for count-above-range, count-below-range, and unexpected flows, including failing event provenance;
 - duplicate-message corpus validation against external topology truth without feeding injector truth into the comparator;
-- CI observation at commit `43ad283`: 4/4 replay regression cases passed, the three span-localization-eligible cases were 3/3 top-1 and 3/3 top-3, and the one message-topology-eligible case was 1/1. This is one retained regression observation, not a generalized localization benchmark.
+- delayed-message replay evidence based on correlated publish/consume timing, kept separate from span-localization eligibility because the synchronous request path remains healthy;
+- CI observation at commit `43ad283`: 4/4 replay regression cases passed, the three span-localization-eligible cases were 3/3 top-1 and 3/3 top-3, and the one message-topology-eligible case was 1/1. This historical retained observation predates v2 and is not a generalized localization benchmark.
 
 Still required:
 
