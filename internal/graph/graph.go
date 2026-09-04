@@ -256,7 +256,11 @@ func durationOf(e model.Event) (time.Duration, bool) {
 		return 0, false
 	}
 	us, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
+	if err != nil || us < 0 {
+		return 0, false
+	}
+	maxDurationUS := int64(^uint64(0)>>1) / int64(time.Microsecond)
+	if us > maxDurationUS {
 		return 0, false
 	}
 	return time.Duration(us) * time.Microsecond, true
