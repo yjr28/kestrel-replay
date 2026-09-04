@@ -31,6 +31,7 @@ type Envelope struct {
 type delivery struct {
 	envelope  Envelope
 	duplicate bool
+	delay     time.Duration
 }
 
 type Broker struct {
@@ -46,6 +47,7 @@ type Broker struct {
 	delivered    atomic.Uint64
 	errors       atomic.Uint64
 	duplicated   atomic.Uint64
+	delayed      atomic.Uint64
 	injected     atomic.Uint64
 	closed       atomic.Bool
 }
@@ -58,10 +60,9 @@ func New(workers []string, capacity int) *Broker {
 	return b
 }
 
-// NewWithFault configures the broker-owned asynchronous fault path. The current
-// implementation supports duplicate_message for the orders.completed fan-out.
-// Fault evidence is synchronously accepted by the collector before a duplicated
-// delivery is allowed into the broker queue.
+// NewWithFault configures broker-owned asynchronous fault paths for the
+// orders.completed fan-out. Fault evidence is synchronously accepted by the
+// collector before the modified delivery schedule is allowed into the queue.
 func NewWithFault(workers []string, capacity int, collectorURL string, spec *fault.Spec) (*Broker, error) {
 	if capacity < 1 {
 		capacity = 1
@@ -71,17 +72,19 @@ func NewWithFault(workers []string, capacity int, collectorURL string, spec *fau
 		if err := spec.Validate(); err != nil {
 			return nil, err
 		}
-		if spec.Kind != fault.DuplicateMessage {
+		switch spec.Kind {
+		case fault.DuplicateMessage, fault.DelayedMessage:
+		default:
 			return nil, fmt.Errorf("broker fault kind %q is not supported", spec.Kind)
 		}
 		if spec.TargetService != "broker" {
-			return nil, fmt.Errorf("duplicate message broker fault requires target service broker")
+			return nil, fmt.Errorf("broker async fault requires target service broker")
 		}
 		if spec.Operation != ordersCompletedOperation {
-			return nil, fmt.Errorf("duplicate message broker fault requires operation %s", ordersCompletedOperation)
+			return nil, fmt.Errorf("broker async fault requires operation %s", ordersCompletedOperation)
 		}
 		if strings.TrimSpace(collectorURL) == "" {
-			return nil, fmt.Errorf("duplicate message broker fault requires collector URL")
+			return nil, fmt.Errorf("broker async fault requires collector URL")
 		}
 		v := *spec
 		copied = &v
@@ -117,18 +120,25 @@ func (b *Broker) Handler() http.Handler {
 			return
 		}
 
-		duplicate := b.decideDuplicate()
-		if duplicate {
-			if err := b.recordDuplicateFault(r.Context(), env); err != nil {
+		var duplicate bool
+		var delay time.Duration
+		if spec, inject := b.decideFault(); inject {
+			if err := b.recordFault(r.Context(), env, spec); err != nil {
 				b.errors.Add(1)
-				http.Error(w, "record duplicate fault: "+err.Error(), http.StatusServiceUnavailable)
+				http.Error(w, "record broker fault: "+err.Error(), http.StatusServiceUnavailable)
 				return
 			}
 			b.injected.Add(1)
+			switch spec.Kind {
+			case fault.DuplicateMessage:
+				duplicate = true
+			case fault.DelayedMessage:
+				delay = spec.Delay
+			}
 		}
 
 		select {
-		case b.queue <- delivery{envelope: env, duplicate: duplicate}:
+		case b.queue <- delivery{envelope: env, duplicate: duplicate, delay: delay}:
 			w.WriteHeader(http.StatusAccepted)
 		default:
 			http.Error(w, "broker queue full", http.StatusServiceUnavailable)
@@ -138,26 +148,40 @@ func (b *Broker) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"queued": len(b.queue), "inflight": b.inflight.Load(), "delivered": b.delivered.Load(), "errors": b.errors.Load(),
-			"duplicated_envelopes": b.duplicated.Load(), "faults_injected": b.injected.Load(),
+			"duplicated_envelopes": b.duplicated.Load(), "delayed_envelopes": b.delayed.Load(), "faults_injected": b.injected.Load(),
 		})
 	})
 	return mux
 }
 
-func (b *Broker) decideDuplicate() bool {
+func (b *Broker) decideFault() (fault.Spec, bool) {
 	b.faultMu.Lock()
 	defer b.faultMu.Unlock()
 	if b.faultSpec == nil {
-		return false
+		return fault.Spec{}, false
 	}
 	b.faultMatches++
-	return b.faultMatches == b.faultSpec.TriggerOnMatch
+	if b.faultMatches != b.faultSpec.TriggerOnMatch {
+		return fault.Spec{}, false
+	}
+	return *b.faultSpec, true
 }
 
-func (b *Broker) recordDuplicateFault(ctx context.Context, env Envelope) error {
-	spec := b.faultSpec
-	if spec == nil {
-		return fmt.Errorf("duplicate fault is not configured")
+func (b *Broker) recordFault(ctx context.Context, env Envelope, spec fault.Spec) error {
+	attributes := map[string]string{
+		"fault.kind":       string(spec.Kind),
+		"target.service":   spec.TargetService,
+		"target.operation": spec.Operation,
+		"seed":             strconv.FormatInt(spec.Seed, 10),
+		"trigger_on_match": strconv.Itoa(spec.TriggerOnMatch),
+		"message.id":       env.MessageID,
+	}
+	switch spec.Kind {
+	case fault.DuplicateMessage:
+		attributes["duplicate.extra_copies"] = "1"
+	case fault.DelayedMessage:
+		attributes["delay_us"] = strconv.FormatInt(spec.Delay.Microseconds(), 10)
+		attributes["schedule.phase"] = "before_delivery"
 	}
 	event := model.Event{
 		ID:            "broker-fault-" + env.MessageID,
@@ -169,15 +193,7 @@ func (b *Broker) recordDuplicateFault(ctx context.Context, env Envelope) error {
 		Operation:     ordersCompletedOperation,
 		Timestamp:     time.Now().UTC(),
 		Status:        "injected",
-		Attributes: map[string]string{
-			"fault.kind":             string(spec.Kind),
-			"target.service":         spec.TargetService,
-			"target.operation":       spec.Operation,
-			"seed":                   strconv.FormatInt(spec.Seed, 10),
-			"trigger_on_match":       strconv.Itoa(spec.TriggerOnMatch),
-			"message.id":             env.MessageID,
-			"duplicate.extra_copies": "1",
-		},
+		Attributes:    attributes,
 	}
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -207,6 +223,10 @@ func (b *Broker) run() {
 	defer b.wg.Done()
 	for item := range b.queue {
 		b.inflight.Add(1)
+		if item.delay > 0 {
+			b.delayed.Add(1)
+			time.Sleep(item.delay)
+		}
 		rounds := 1
 		if item.duplicate {
 			rounds = 2

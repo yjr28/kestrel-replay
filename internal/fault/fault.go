@@ -67,6 +67,16 @@ func (s Spec) Validate() error {
 		if s.Operation == "" {
 			return fmt.Errorf("duplicate message requires a target operation/topic")
 		}
+	case DelayedMessage:
+		if s.Delay <= 0 {
+			return fmt.Errorf("delayed message requires positive delay")
+		}
+		if s.JitterFraction != 0 {
+			return fmt.Errorf("delayed message does not yet accept jitter")
+		}
+		if s.Operation == "" {
+			return fmt.Errorf("delayed message requires a target operation/topic")
+		}
 	default:
 		return fmt.Errorf("fault kind %q is not implemented", s.Kind)
 	}
