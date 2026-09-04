@@ -31,7 +31,7 @@ flowchart TB
 
     SF[service fault controller] --> I
     OF[orchestrator crash schedule] --> I
-    BF[broker duplicate schedule] --> B
+    BF[broker duplicate/delay schedule] --> B
 
     G -. normalized events .-> C[collector process]
     A -. normalized events .-> C
@@ -56,12 +56,12 @@ flowchart TB
 
 - Each application service, broker, and collector is a separate OS process, but the demo still runs on one host over loopback TCP.
 - Trace propagation uses standards-compliant W3C `traceparent`, while span/event emission is a lightweight Kestrel implementation rather than the OpenTelemetry SDK.
-- The broker is a real separate network process with a bounded queue. It now supports one broker-owned fault: duplicating the `orders.completed` fan-out after synchronously recording injector evidence. It is not durable and does not yet support delayed/reordered delivery.
+- The broker is a real separate network process with a bounded queue. It supports two broker-owned fault slices for `orders.completed`: duplicated fan-out after synchronously recording injector evidence, and a positive fixed delivery delay with no jitter. It is not durable and does not implement controlled message reordering.
 - Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters. Before evidence is judged, the multi-process harness uses an explicit active-handler/exporter drain barrier rather than sleep timing.
 - The live collector store is in-memory, but completed experiments are committed to immutable versioned artifact directories with NDJSON events plus manifest/event SHA-256 checks. PostgreSQL indexing is not implemented yet.
-- Four fault slices are replay-tested: service-local latency and TCP reset, orchestrator-owned pre-request inventory crash, and broker-owned duplicate `orders.completed` delivery.
+- Five fault slices are replay-tested in the current v2 corpus: service-local latency and TCP reset, orchestrator-owned pre-request inventory crash, broker-owned duplicate `orders.completed` delivery, and broker-owned delayed `orders.completed` delivery.
 - No kernel/eBPF evidence is collected yet.
-- Level-B schedule replay is proven by the integration corpus for those four slices. Controlled message ordering (Level C) is not implemented.
+- Level-B schedule replay is exercised by the integration corpus for those five slices. Controlled message ordering (Level C) is not implemented.
 
 These are measured implementation boundaries, not claims about the target architecture.
 
@@ -71,7 +71,7 @@ The standalone collector exposes accepted/stored/invalid/dropped counts, queue d
 
 Service-side exporters track sent/dropped/error/queued/pending state and retry transient collector delivery within bounds. Services expose a non-business telemetry flush barrier used by the integration harness.
 
-The broker reports queued/in-flight/delivered/error counts plus injected/duplicated-envelope counts. For duplicate injection, collector acceptance of the fault event is a precondition for enqueueing the faulty delivery. This prevents Kestrel from creating an unrecorded duplicate incident.
+For duplicate injection, collector acceptance of the fault event is a precondition for enqueueing the faulty delivery. This prevents Kestrel from creating an unrecorded duplicate incident. Delayed-message validation separately requires correlated publish/consume timing evidence and unchanged expected delivery multiplicity; it does not claim arbitrary timing determinism.
 
 ## Target architecture
 
@@ -143,11 +143,11 @@ The model favors a small stable envelope plus source-specific attributes over a 
 
 Current graph edges are created only for explicit evidence:
 
-- known parent span ID;
+- parent spans resolved by the same `trace_id` plus matching `parent_span_id`/`span_id` identity;
 - exact message ID publish/consume match;
 - explicit fault target followed by an affected-service span when such a span exists.
 
-Duplicate delivery preserves the original message ID, so one publisher can have multiple explicit consume edges; the tested duplicate incident produces six message edges. A pre-request crash has no inventory request span, so the graph does not invent a synthetic node merely to create a fault edge.
+Duplicate `(trace_id, span_id)` identities are rejected rather than allowing one event to overwrite another as a parent target. Duplicate delivery preserves the original message ID, so one publisher can have multiple explicit consume edges; the tested duplicate incident produces six message edges. A pre-request crash has no inventory request span, so the graph does not invent a synthetic node merely to create a fault edge.
 
 Important limitations:
 
@@ -161,11 +161,11 @@ Future inferred edges must carry confidence/provenance rather than being mixed s
 
 ## Replay comparison and divergence
 
-External replay comparison uses classification, HTTP status, terminal service, error code, and causal path. Kestrel additionally computes a canonical `orders.completed` message-delivery signature containing publish count and consume counts per service while excluding generated IDs/timestamps. This is required because duplicate-message incidents preserve a successful HTTP 201 outcome.
+External replay comparison uses classification, HTTP status, terminal service, error code, and causal path. Kestrel additionally computes a canonical `orders.completed` message-delivery signature containing publish count and consume counts per service while excluding generated IDs/timestamps. Duplicate-message replay requires async-delivery parity because that incident preserves a successful HTTP outcome. Delayed-message replay additionally checks correlated publish/consume timing against the configured minimum delay while keeping delivery multiplicity unchanged.
 
-The divergence implementation compares healthy and failing application spans while deliberately ignoring injector events during localization. It first checks local latency deltas; when an external outcome identifies a terminal service it can distinguish a terminal status change from a missing healthy span; then it falls back to generic topology/status differences.
+Span localization uses multiple separately recorded healthy executions to build empirical timing/count envelopes and compares failing application evidence without reading injector truth. Returned divergences retain exact healthy/failing application event provenance, and terminal-service localization can include the external outcome anchor. Async message topology is compared separately with empirical `(topic, action, service)` count envelopes and explicit healthy-run provenance, including zero-count absence evidence for unexpected flows. The emitted heuristic confidence score is auditable but is not a calibrated probability.
 
-This remains an evidence heuristic, not a final root-cause algorithm. Later versions should incorporate healthy-run distributions, graph diffs, retry/message-order changes, kernel anomalies, provenance/confidence, and corpus-level evaluation.
+These remain conservative regression mechanisms, not generalized root-cause or localization-accuracy claims. Richer topology diffs, retry/message-order changes, kernel anomaly features, broader independent evaluation samples, and calibrated confidence remain future work.
 
 ## Security boundary
 
@@ -178,5 +178,3 @@ Production defaults will require:
 - hashing/tokenization of selected identifiers where raw values are unnecessary;
 - bounded retention per experiment;
 - documented sampling behavior;
-- least-privilege eBPF capabilities and host assumptions;
-- explicit threat model for multi-tenant environments.
