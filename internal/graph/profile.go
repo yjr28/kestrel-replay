@@ -144,6 +144,7 @@ func (p HealthyProfile) Baselines() []SpanBaseline {
 // distribution. Latency evidence uses an adaptive threshold of the configured
 // minimum or six times the healthy MAD, whichever is larger.
 func RankDivergencesAgainstProfile(profile HealthyProfile, failing []model.Event, minimumLatencyThreshold time.Duration, terminalService string) []LocalizationCandidate {
+	terminalService = strings.TrimSpace(terminalService)
 	failingSpans, failingAmbiguous := applicationSpanIndexWithAmbiguity(failing)
 	keys := make([]divergenceKey, 0, len(profile.baselines))
 	for key := range profile.baselines {
