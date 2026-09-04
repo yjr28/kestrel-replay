@@ -149,12 +149,20 @@ func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 // applicationSpanIndexWithAmbiguity returns only application span keys backed
 // by exactly one identified event. Duplicate service/operation keys are kept
 // separately so callers can avoid treating an arbitrary retry/duplicate as
-// authoritative evidence while retry semantics remain unmodeled.
+// authoritative evidence while retry semantics remain unmodeled. Event IDs
+// reused by multiple otherwise eligible spans are excluded because they cannot
+// name one exact supporting event.
 func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
 	spans := make(map[divergenceKey]model.Event)
 	ambiguous := make(map[divergenceKey]struct{})
+	eventIDCounts := make(map[string]int)
+	for _, event := range events {
+		if event.Kind == model.KindSpan && event.Source == model.SourceApplication && strings.TrimSpace(event.ID) != "" {
+			eventIDCounts[event.ID]++
+		}
+	}
 	for _, e := range model.Sorted(events) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" || eventIDCounts[e.ID] != 1 {
 			continue
 		}
 		key := divergenceKey{service: e.Service, operation: e.Operation}
