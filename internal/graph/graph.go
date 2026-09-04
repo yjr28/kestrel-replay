@@ -125,12 +125,15 @@ func EarliestMeaningfulDivergenceForTerminalService(healthy, failing []model.Eve
 }
 
 func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) (Divergence, bool) {
-	healthySpans := applicationSpanIndex(healthy)
-	failingSpans := applicationSpanIndex(failing)
+	healthySpans, healthyAmbiguous := applicationSpanIndexWithAmbiguity(healthy)
+	failingSpans, failingAmbiguous := applicationSpanIndexWithAmbiguity(failing)
 
 	var bestLatency Divergence
 	var haveLatency bool
 	for key, e := range failingSpans {
+		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
+			continue
+		}
 		h, ok := healthySpans[key]
 		if !ok {
 			continue
@@ -164,6 +167,12 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 				continue
 			}
 			key := divergenceKey{service: h.Service, operation: h.Operation}
+			if _, ambiguous := healthyAmbiguous[key]; ambiguous {
+				continue
+			}
+			if _, ambiguous := failingAmbiguous[key]; ambiguous {
+				continue
+			}
 			f, ok := failingSpans[key]
 			if !ok {
 				return Divergence{
@@ -186,6 +195,12 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			continue
 		}
 		key := divergenceKey{service: e.Service, operation: e.Operation}
+		if _, ambiguous := failingAmbiguous[key]; ambiguous {
+			continue
+		}
+		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
+			continue
+		}
 		h, ok := healthySpans[key]
 		if !ok {
 			return Divergence{
@@ -207,6 +222,12 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			continue
 		}
 		key := divergenceKey{service: h.Service, operation: h.Operation}
+		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
+			continue
+		}
+		if _, ambiguous := failingAmbiguous[key]; ambiguous {
+			continue
+		}
 		if _, ok := failingSpans[key]; !ok {
 			return Divergence{
 				Service: h.Service, Operation: h.Operation, Reason: "missing_span",

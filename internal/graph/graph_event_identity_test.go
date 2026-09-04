@@ -58,6 +58,27 @@ func TestTerminalServiceAnchorDoesNotUseUnidentifiedHealthySpan(t *testing.T) {
 	}
 }
 
+func TestEarliestMeaningfulDivergenceExcludesAmbiguousDuplicateSpans(t *testing.T) {
+	now := time.Now().UTC()
+	healthy := []model.Event{
+		identitySpan("healthy-inventory", "inventory", "check", "ok", now),
+	}
+	failing := []model.Event{
+		identitySpan("failing-inventory-1", "inventory", "check", "error", now.Add(time.Second)),
+		identitySpan("failing-inventory-2", "inventory", "check", "ok", now.Add(2*time.Second)),
+	}
+
+	if divergence, ok := EarliestMeaningfulDivergenceForTerminalService(healthy, failing, 20*time.Millisecond, "inventory"); ok {
+		t.Fatalf("duplicate failing spans must not be reduced to arbitrary earliest evidence: %+v", divergence)
+	}
+
+	healthy = append(healthy, identitySpan("healthy-inventory-2", "inventory", "check", "error", now.Add(3*time.Second)))
+	failing = failing[:1]
+	if divergence, ok := EarliestMeaningfulDivergenceForTerminalService(healthy, failing, 20*time.Millisecond, "inventory"); ok {
+		t.Fatalf("duplicate healthy spans must not make singleton failing evidence look unexpected or terminal: %+v", divergence)
+	}
+}
+
 func identitySpan(id, service, operation, status string, at time.Time) model.Event {
 	return model.Event{
 		ID: id,
