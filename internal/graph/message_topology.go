@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/yjr28/kestrel-replay/internal/model"
 )
@@ -196,7 +197,7 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
 	for _, event := range model.Sorted(events) {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.ID == "" {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" {
 			continue
 		}
 		topic := event.Attributes["topic"]
