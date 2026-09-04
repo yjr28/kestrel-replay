@@ -26,7 +26,7 @@ Tie-breaking is deterministic by service, operation, then reason.
 
 ## Async message-topology evidence
 
-Kestrel also builds an empirical message-topology profile from the same healthy-run set. Only application message events with a non-empty `topic`, supported `message.action`, and non-empty `message.id` are eligible to affect this profile or a failing-run topology comparison. Requiring message identity prevents uncorrelatable telemetry from establishing or satisfying a topology divergence.
+Kestrel also builds an empirical message-topology profile from the same healthy-run set. Only application message events with a non-empty event ID, non-empty `topic`, supported `message.action`, and non-empty `message.id` are eligible to affect this profile or a failing-run topology comparison. The event ID is required because topology divergences expose exact event provenance; an event that cannot be named cannot establish or satisfy that evidence. The message ID remains a separate eligibility requirement for message correlation metadata.
 
 For each eligible `(topic, action, service)` flow it records the observed count envelope plus per-run evidence: the count and exact application event IDs observed in each healthy run. An absent flow in a particular healthy run is represented explicitly as a zero count with no event IDs.
 
