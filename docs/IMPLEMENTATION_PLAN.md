@@ -27,7 +27,8 @@ Completed:
 - bounded service exporter with retry/pending accounting;
 - deterministic service telemetry-drain barrier before evidence is judged;
 - separate bounded broker process;
-- multi-process integration/replay tests across fresh topologies.
+- multi-process integration/replay tests across fresh topologies;
+- just-in-time child port allocation in the orchestrator so internal ephemeral-port reuse cannot make a dead child appear healthy through another node's listener.
 
 Still required:
 
@@ -96,29 +97,32 @@ The v1 corpus exit gate is met: the fixed four-case corpus has automated pass/fa
 
 ## Milestone 6 — causal divergence v2
 
-**Status: ranked single-baseline localization gate complete; distribution/topology features remain in progress**
+**Status: multi-run span localization and async message-topology regression gates complete; broader topology/causal features remain in progress**
 
 Completed so far:
 
-- local latency-delta comparison;
-- status/topology fallback while ignoring injector events;
+- local latency/status/missing-span comparison while ignoring injector events;
 - terminal-service outcome anchor for status change vs missing span;
 - real crash integration proof for missing `inventory/check`;
-- explicit one-to-many message graph evidence for duplicate async delivery;
 - divergence provenance via exact healthy/failing application event IDs plus explicit external terminal-service anchors where used;
 - deterministic ranked localization candidates with an auditable `heuristic_v1` confidence score whose additive basis is emitted with each candidate; the score is explicitly not a calibrated probability;
-- a checksum-verified healthy baseline artifact retained alongside each corpus run;
+- three separately recorded healthy executions per corpus run, retained as checksum-verified artifacts and combined into empirical span baselines;
+- empirical span timing/count envelopes instead of a single healthy sample;
 - seeded localization truth stored outside the graph localizer so candidate construction cannot read injector truth;
-- v1 corpus top-k regression evaluation for latency, reset, and crash; duplicate-message is intentionally excluded until async topology divergence is ranked directly;
-- CI observation at commit `766db2c`: 4/4 replay regression cases passed and the three localization-eligible cases were 3/3 top-1 and 3/3 top-3. This is one retained regression observation, not a generalized localization benchmark.
+- v1 corpus top-k regression evaluation for latency, reset, and crash;
+- explicit one-to-many message graph evidence for duplicate async delivery;
+- empirical message-topology profiles across the same healthy-run set using `(topic, action, service)` count envelopes;
+- direct message-topology divergence evidence for count-above-range, count-below-range, and unexpected flows, including failing event provenance;
+- duplicate-message corpus validation against external topology truth without feeding injector truth into the comparator;
+- CI observation at commit `43ad283`: 4/4 replay regression cases passed, the three span-localization-eligible cases were 3/3 top-1 and 3/3 top-3, and the one message-topology-eligible case was 1/1. This is one retained regression observation, not a generalized localization benchmark.
 
 Still required:
 
-- richer graph/topology diffs;
-- healthy-run distributions instead of one healthy sample;
-- retry and message-order changes;
+- richer graph/topology diffs beyond current span and message-count envelopes;
+- retry and message-order changes once those behaviors are implemented end to end;
 - kernel anomaly features;
-- calibrated/empirical confidence only if enough evaluation data exists to justify it.
+- broader healthy/evaluation samples before empirical envelopes are treated as representative;
+- calibrated/empirical confidence only if enough independent evaluation data exists to justify it.
 
 ## Milestone 7 — deployment and performance engineering
 
