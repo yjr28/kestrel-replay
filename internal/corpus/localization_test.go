@@ -2,18 +2,23 @@ package corpus
 
 import "testing"
 
-func TestExpectedLocalizationScopesOnlySynchronousV1Cases(t *testing.T) {
+func TestExpectedLocalizationScopesOnlySynchronousCases(t *testing.T) {
 	eligible := 0
+	synchronous := map[string]bool{
+		"inventory-timeout":             true,
+		"inventory-connection-reset":    true,
+		"inventory-pre-request-crash":   true,
+	}
 	for _, c := range Cases() {
 		truth, ok := ExpectedLocalization(c)
-		if c.ID == "orders-completed-duplicate" {
+		if !synchronous[c.ID] {
 			if ok {
-				t.Fatalf("duplicate-message case must remain excluded from span-only localization: %+v", truth)
+				t.Fatalf("async case %s must remain excluded from span-only localization: %+v", c.ID, truth)
 			}
 			continue
 		}
 		if !ok {
-			t.Fatalf("expected localization truth for %s", c.ID)
+			t.Fatalf("expected localization truth for synchronous case %s", c.ID)
 		}
 		eligible++
 		if truth.Service != "inventory" || truth.Operation != "check" {
@@ -21,6 +26,6 @@ func TestExpectedLocalizationScopesOnlySynchronousV1Cases(t *testing.T) {
 		}
 	}
 	if eligible != 3 {
-		t.Fatalf("expected three localization-eligible v1 cases, got %d", eligible)
+		t.Fatalf("expected three localization-eligible synchronous cases, got %d", eligible)
 	}
 }
