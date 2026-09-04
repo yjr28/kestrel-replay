@@ -99,8 +99,13 @@ func TestMessageTopologyProfileReportsMissingAndUnexpectedFlows(t *testing.T) {
 			missingAnalytics = true
 		}
 		if divergence.Service == "search-index" && divergence.Reason == "unexpected_message_flow" && divergence.FailingCount == 1 {
-			if len(divergence.HealthyRuns) != 0 || len(divergence.FailingEventIDs) != 1 {
-				t.Fatalf("unexpected flow should be supported only by failing events: %+v", divergence)
+			if len(divergence.HealthyRuns) != 2 || len(divergence.FailingEventIDs) != 1 {
+				t.Fatalf("unexpected flow lost absence/failing evidence: %+v", divergence)
+			}
+			for runIndex, evidence := range divergence.HealthyRuns {
+				if evidence.RunIndex != runIndex || evidence.Count != 0 || len(evidence.EventIDs) != 0 {
+					t.Fatalf("unexpected flow must preserve explicit healthy absence: %+v", divergence)
+				}
 			}
 			unexpectedSearch = true
 		}

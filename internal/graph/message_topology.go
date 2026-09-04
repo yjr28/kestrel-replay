@@ -154,6 +154,7 @@ func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Even
 		divergences = append(divergences, MessageTopologyDivergence{
 			Topic: key.topic, Action: key.action, Service: key.service, Reason: "unexpected_message_flow",
 			FailingCount: failingCount, CountDelta: failingCount,
+			HealthyRuns: absentMessageFlowRunEvidence(profile.RunCount),
 			FailingEventIDs: append([]string(nil), eventIDs[key]...),
 		})
 	}
@@ -172,6 +173,14 @@ func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Even
 		return divergences[i].Service < divergences[j].Service
 	})
 	return divergences
+}
+
+func absentMessageFlowRunEvidence(runCount int) []MessageFlowRunEvidence {
+	runs := make([]MessageFlowRunEvidence, runCount)
+	for runIndex := range runs {
+		runs[runIndex] = MessageFlowRunEvidence{RunIndex: runIndex, Count: 0}
+	}
+	return runs
 }
 
 func cloneMessageFlowRunEvidence(in []MessageFlowRunEvidence) []MessageFlowRunEvidence {
