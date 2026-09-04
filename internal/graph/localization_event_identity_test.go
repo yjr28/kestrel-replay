@@ -35,6 +35,29 @@ func TestRankDivergencesRequiresEventIdentityForSpanEvidence(t *testing.T) {
 	}
 }
 
+func TestRankDivergencesRequiresNamedLocalizationKeyForSpanEvidence(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	cases := []struct {
+		name      string
+		service   string
+		operation string
+	}{
+		{name: "blank service", service: " ", operation: "GET /stock"},
+		{name: "blank operation", service: "inventory", operation: "\t"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			candidates := RankDivergences(nil, []model.Event{{
+				ID: "failing-span", Source: model.SourceApplication, Kind: model.KindSpan,
+				Service: tc.service, Operation: tc.operation, Status: "error", Timestamp: now,
+			}}, 0, "")
+			if len(candidates) != 0 {
+				t.Fatalf("span without a nameable localization key must not establish evidence: %#v", candidates)
+			}
+		})
+	}
+}
+
 func TestRankDivergencesExcludesAmbiguousDuplicateSpanEvidence(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	healthy := []model.Event{{
