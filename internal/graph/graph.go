@@ -125,18 +125,8 @@ func EarliestMeaningfulDivergenceForTerminalService(healthy, failing []model.Eve
 }
 
 func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) (Divergence, bool) {
-	healthySpans := make(map[divergenceKey]model.Event)
-	failingSpans := make(map[divergenceKey]model.Event)
-	for _, e := range healthy {
-		if e.Kind == model.KindSpan && e.Source == model.SourceApplication {
-			healthySpans[divergenceKey{service: e.Service, operation: e.Operation}] = e
-		}
-	}
-	for _, e := range failing {
-		if e.Kind == model.KindSpan && e.Source == model.SourceApplication {
-			failingSpans[divergenceKey{service: e.Service, operation: e.Operation}] = e
-		}
-	}
+	healthySpans := applicationSpanIndex(healthy)
+	failingSpans := applicationSpanIndex(failing)
 
 	var bestLatency Divergence
 	var haveLatency bool
@@ -170,7 +160,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	if terminalService != "" {
 		anchor := "outcome.terminal_service=" + terminalService
 		for _, h := range model.Sorted(healthy) {
-			if h.Kind != model.KindSpan || h.Source != model.SourceApplication || h.Service != terminalService {
+			if h.Kind != model.KindSpan || h.Source != model.SourceApplication || strings.TrimSpace(h.ID) == "" || h.Service != terminalService {
 				continue
 			}
 			key := divergenceKey{service: h.Service, operation: h.Operation}
@@ -192,7 +182,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	}
 
 	for _, e := range model.Sorted(failing) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" {
 			continue
 		}
 		key := divergenceKey{service: e.Service, operation: e.Operation}
@@ -213,7 +203,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	}
 
 	for _, h := range model.Sorted(healthy) {
-		if h.Kind != model.KindSpan || h.Source != model.SourceApplication {
+		if h.Kind != model.KindSpan || h.Source != model.SourceApplication || strings.TrimSpace(h.ID) == "" {
 			continue
 		}
 		key := divergenceKey{service: h.Service, operation: h.Operation}
