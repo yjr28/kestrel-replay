@@ -101,4 +101,10 @@ func TestDelayedObservedValidationRequiresThresholdAndSingleDelivery(t *testing.
 	if err := ValidateObserved(c, outcome, duplicated); err == nil {
 		t.Fatal("delayed-message case must reject duplicate delivery")
 	}
+
+	uncorrelated := append([]model.Event(nil), events...)
+	uncorrelated[2].Attributes = map[string]string{"topic": Topic, "message.id": "different-message", "message.action": "consume"}
+	if err := ValidateObserved(c, outcome, uncorrelated); err == nil {
+		t.Fatal("delayed-message case must reject consume evidence that cannot be correlated to the publish")
+	}
 }

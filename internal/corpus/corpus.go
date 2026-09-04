@@ -145,6 +145,9 @@ func ValidateObserved(c Case, outcome replay.OutcomeSignature, events []model.Ev
 			return fmt.Errorf("delayed message changed delivery multiplicity: %+v", delivery)
 		}
 		delay := replay.MessageDelay(events, Topic)
+		if delay.CorrelatedConsumeCount != 3 {
+			return fmt.Errorf("delayed message has uncorrelated consume evidence: %+v", delay)
+		}
 		if !replay.MeetsMinimumMessageDelay(delay, c.Fault.Delay) {
 			return fmt.Errorf("delayed message did not meet %v threshold: %+v", c.Fault.Delay, delay)
 		}
