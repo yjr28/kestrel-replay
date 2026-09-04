@@ -81,12 +81,15 @@ func Build(events []model.Event) (*Graph, error) {
 }
 
 type Divergence struct {
-	Service      string        `json:"service"`
-	Operation    string        `json:"operation"`
-	Reason       string        `json:"reason"`
-	HealthyValue string        `json:"healthy_value"`
-	FailingValue string        `json:"failing_value"`
-	Delta        time.Duration `json:"delta,omitempty"`
+	Service        string        `json:"service"`
+	Operation      string        `json:"operation"`
+	Reason         string        `json:"reason"`
+	HealthyValue   string        `json:"healthy_value"`
+	FailingValue   string        `json:"failing_value"`
+	Delta          time.Duration `json:"delta,omitempty"`
+	HealthyEventID string        `json:"healthy_event_id,omitempty"`
+	FailingEventID string        `json:"failing_event_id,omitempty"`
+	Anchor         string        `json:"anchor,omitempty"`
 }
 
 type divergenceKey struct {
@@ -97,8 +100,8 @@ type divergenceKey struct {
 // EarliestMeaningfulDivergence compares application spans while deliberately
 // ignoring explicit injector events. It first looks for a local latency anomaly
 // because propagated parent errors are usually consequences, then falls back to
-// status/topology changes. This is intentionally conservative: it returns
-// evidence, not a claim of perfect causal certainty.
+// status/topology changes. Returned event IDs make the selected evidence
+// auditable without changing the conservative selection semantics.
 func EarliestMeaningfulDivergence(healthy, failing []model.Event, latencyThreshold time.Duration) (Divergence, bool) {
 	return earliestMeaningfulDivergence(healthy, failing, latencyThreshold, "")
 }
@@ -142,7 +145,11 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			delta = -delta
 		}
 		if delta >= latencyThreshold && (!haveLatency || delta > bestLatency.Delta) {
-			bestLatency = Divergence{Service: e.Service, Operation: e.Operation, Reason: "latency_delta", HealthyValue: hd.String(), FailingValue: fd.String(), Delta: delta}
+			bestLatency = Divergence{
+				Service: e.Service, Operation: e.Operation, Reason: "latency_delta",
+				HealthyValue: hd.String(), FailingValue: fd.String(), Delta: delta,
+				HealthyEventID: h.ID, FailingEventID: e.ID,
+			}
 			haveLatency = true
 		}
 	}
@@ -151,6 +158,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	}
 
 	if terminalService != "" {
+		anchor := "outcome.terminal_service=" + terminalService
 		for _, h := range model.Sorted(healthy) {
 			if h.Kind != model.KindSpan || h.Source != model.SourceApplication || h.Service != terminalService {
 				continue
@@ -158,10 +166,17 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			key := divergenceKey{service: h.Service, operation: h.Operation}
 			f, ok := failingSpans[key]
 			if !ok {
-				return Divergence{Service: h.Service, Operation: h.Operation, Reason: "missing_span", HealthyValue: h.Status, FailingValue: "missing"}, true
+				return Divergence{
+					Service: h.Service, Operation: h.Operation, Reason: "missing_span",
+					HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: h.ID, Anchor: anchor,
+				}, true
 			}
 			if h.Status != f.Status {
-				return Divergence{Service: h.Service, Operation: h.Operation, Reason: "terminal_status_change", HealthyValue: h.Status, FailingValue: f.Status}, true
+				return Divergence{
+					Service: h.Service, Operation: h.Operation, Reason: "terminal_status_change",
+					HealthyValue: h.Status, FailingValue: f.Status,
+					HealthyEventID: h.ID, FailingEventID: f.ID, Anchor: anchor,
+				}, true
 			}
 		}
 	}
@@ -173,10 +188,17 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		key := divergenceKey{service: e.Service, operation: e.Operation}
 		h, ok := healthySpans[key]
 		if !ok {
-			return Divergence{Service: e.Service, Operation: e.Operation, Reason: "unexpected_span", FailingValue: e.Status}, true
+			return Divergence{
+				Service: e.Service, Operation: e.Operation, Reason: "unexpected_span",
+				FailingValue: e.Status, FailingEventID: e.ID,
+			}, true
 		}
 		if h.Status != e.Status {
-			return Divergence{Service: e.Service, Operation: e.Operation, Reason: "status_change", HealthyValue: h.Status, FailingValue: e.Status}, true
+			return Divergence{
+				Service: e.Service, Operation: e.Operation, Reason: "status_change",
+				HealthyValue: h.Status, FailingValue: e.Status,
+				HealthyEventID: h.ID, FailingEventID: e.ID,
+			}, true
 		}
 	}
 
@@ -186,7 +208,10 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		}
 		key := divergenceKey{service: h.Service, operation: h.Operation}
 		if _, ok := failingSpans[key]; !ok {
-			return Divergence{Service: h.Service, Operation: h.Operation, Reason: "missing_span", HealthyValue: h.Status, FailingValue: "missing"}, true
+			return Divergence{
+				Service: h.Service, Operation: h.Operation, Reason: "missing_span",
+				HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: h.ID,
+			}, true
 		}
 	}
 	return Divergence{}, false

@@ -32,6 +32,9 @@ func TestEarliestMeaningfulDivergenceLatency(t *testing.T) {
 	if !ok || d.Service != "inventory" || d.Reason != "latency_delta" {
 		t.Fatalf("unexpected divergence: ok=%v d=%+v", ok, d)
 	}
+	if d.HealthyEventID != "h" || d.FailingEventID != "f" || d.Anchor != "" {
+		t.Fatalf("unexpected latency provenance: %+v", d)
+	}
 }
 
 func TestTerminalServiceAnchorFindsMissingCrashSpan(t *testing.T) {
@@ -49,6 +52,9 @@ func TestTerminalServiceAnchorFindsMissingCrashSpan(t *testing.T) {
 	if !ok || d.Service != "inventory" || d.Operation != "check" || d.Reason != "missing_span" {
 		t.Fatalf("unexpected crash divergence: ok=%v d=%+v", ok, d)
 	}
+	if d.HealthyEventID != "h-inv" || d.FailingEventID != "" || d.Anchor != "outcome.terminal_service=inventory" {
+		t.Fatalf("unexpected crash provenance: %+v", d)
+	}
 }
 
 func TestTerminalServiceAnchorPrefersTerminalStatusChange(t *testing.T) {
@@ -65,5 +71,25 @@ func TestTerminalServiceAnchorPrefersTerminalStatusChange(t *testing.T) {
 	d, ok := EarliestMeaningfulDivergenceForTerminalService(healthy, failing, 20*time.Millisecond, "inventory")
 	if !ok || d.Service != "inventory" || d.Operation != "check" || d.Reason != "terminal_status_change" {
 		t.Fatalf("unexpected terminal divergence: ok=%v d=%+v", ok, d)
+	}
+	if d.HealthyEventID != "h-inv" || d.FailingEventID != "f-inv" || d.Anchor != "outcome.terminal_service=inventory" {
+		t.Fatalf("unexpected terminal provenance: %+v", d)
+	}
+}
+
+func TestGenericStatusAndTopologyDivergenceExposeEventIDs(t *testing.T) {
+	now := time.Now()
+	healthy := []model.Event{{ID: "h-order", Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t1", SpanID: "o1", Service: "order", Operation: "create", Timestamp: now, Status: "ok"}}
+	failing := []model.Event{{ID: "f-order", Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t2", SpanID: "o2", Service: "order", Operation: "create", Timestamp: now, Status: "error"}}
+
+	d, ok := EarliestMeaningfulDivergence(healthy, failing, time.Hour)
+	if !ok || d.Reason != "status_change" || d.HealthyEventID != "h-order" || d.FailingEventID != "f-order" {
+		t.Fatalf("unexpected status provenance: ok=%v d=%+v", ok, d)
+	}
+
+	unexpected := append(failing, model.Event{ID: "f-extra", Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t2", SpanID: "x", Service: "retry", Operation: "attempt", Timestamp: now.Add(-time.Millisecond), Status: "ok"})
+	d, ok = EarliestMeaningfulDivergence(healthy, unexpected, time.Hour)
+	if !ok || d.Reason != "unexpected_span" || d.FailingEventID != "f-extra" || d.HealthyEventID != "" {
+		t.Fatalf("unexpected topology provenance: ok=%v d=%+v", ok, d)
 	}
 }

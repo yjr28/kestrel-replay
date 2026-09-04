@@ -104,7 +104,8 @@ Completed so far:
 - status/topology fallback while ignoring injector events;
 - terminal-service outcome anchor for status change vs missing span;
 - real crash integration proof for missing `inventory/check`;
-- explicit one-to-many message graph evidence for duplicate async delivery.
+- explicit one-to-many message graph evidence for duplicate async delivery;
+- divergence provenance via exact healthy/failing application event IDs plus explicit external terminal-service anchors where used.
 
 Still required:
 
@@ -112,7 +113,7 @@ Still required:
 - healthy-run distributions instead of one healthy sample;
 - retry and message-order changes;
 - kernel anomaly features;
-- evidence provenance/confidence;
+- confidence scoring for localization evidence;
 - top-k localization evaluation against seeded truth.
 
 ## Milestone 7 — deployment and performance engineering
