@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/yjr28/kestrel-replay/internal/model"
 )
@@ -77,4 +78,58 @@ func EquivalentMessageDelivery(a, b MessageDeliverySignature) bool {
 		}
 	}
 	return true
+}
+
+// MessageDelaySignature captures the earliest observed publish-to-consume delay
+// for a topic while deliberately excluding generated message identifiers from
+// the signature. Correlation still uses message.id internally so unrelated
+// messages cannot satisfy a delayed-delivery replay gate.
+type MessageDelaySignature struct {
+	Topic                  string `json:"topic"`
+	PublishCount           int    `json:"publish_count"`
+	CorrelatedConsumeCount int    `json:"correlated_consume_count"`
+	MinConsumeDelayMicros  int64  `json:"min_consume_delay_us"`
+}
+
+func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
+	sig := MessageDelaySignature{Topic: topic}
+	publishes := map[string]time.Time{}
+	for _, event := range events {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.Attributes["topic"] != topic || event.Attributes["message.action"] != "publish" {
+			continue
+		}
+		sig.PublishCount++
+		messageID := event.Attributes["message.id"]
+		if messageID == "" {
+			continue
+		}
+		if current, ok := publishes[messageID]; !ok || event.Timestamp.Before(current) {
+			publishes[messageID] = event.Timestamp
+		}
+	}
+
+	var haveDelay bool
+	for _, event := range events {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.Attributes["topic"] != topic || event.Attributes["message.action"] != "consume" {
+			continue
+		}
+		publishedAt, ok := publishes[event.Attributes["message.id"]]
+		if !ok {
+			continue
+		}
+		delay := event.Timestamp.Sub(publishedAt).Microseconds()
+		sig.CorrelatedConsumeCount++
+		if !haveDelay || delay < sig.MinConsumeDelayMicros {
+			sig.MinConsumeDelayMicros = delay
+			haveDelay = true
+		}
+	}
+	return sig
+}
+
+// MeetsMinimumMessageDelay is a threshold predicate, not an exact timing
+// equality check. Replay can therefore prove that a scheduled delay reappeared
+// without pretending process scheduling or wall-clock timing is deterministic.
+func MeetsMinimumMessageDelay(sig MessageDelaySignature, minimum time.Duration) bool {
+	return minimum > 0 && sig.PublishCount > 0 && sig.CorrelatedConsumeCount > 0 && sig.MinConsumeDelayMicros >= minimum.Microseconds()
 }
