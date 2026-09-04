@@ -212,7 +212,7 @@ func scoreCandidate(c *LocalizationCandidate, terminalService string, latencyThr
 		c.ScoreBasis = append(c.ScoreBasis, "single_event_provenance:+0.01")
 	}
 	if c.Reason == "latency_delta" && latencyThreshold > 0 && c.Delta > 0 {
-		severity := float64(c.Delta) / float64(c.Delta+latencyThreshold)
+		severity := float64(c.Delta) / (float64(c.Delta) + float64(latencyThreshold))
 		bonus := math.Min(0.06, 0.06*severity)
 		c.ConfidenceScore += bonus
 		c.ScoreBasis = append(c.ScoreBasis, fmt.Sprintf("latency_severity:+%.3f", bonus))
