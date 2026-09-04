@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	Version  = "v1"
-	Workload = "single-create-order"
-	Topic    = "orders.completed"
+	Version   = "v2"
+	V1Version = "v1"
+	Workload  = "single-create-order"
+	Topic     = "orders.completed"
 )
 
 var topology = []string{"gateway", "auth", "account", "order", "inventory", "pricing", "payment", "broker", "notification", "audit", "analytics", "collector"}
@@ -25,7 +26,9 @@ type Case struct {
 	ExpectedBehavior string
 }
 
-func Cases() []Case {
+// CasesV1 preserves the original four-case replay corpus verbatim. New corpus
+// versions are additive and must not silently redefine an older version.
+func CasesV1() []Case {
 	return []Case{
 		{
 			ID: "inventory-timeout",
@@ -48,6 +51,18 @@ func Cases() []Case {
 			ExpectedBehavior: "broker delivers the orders.completed envelope twice to each worker while the synchronous request remains successful",
 		},
 	}
+}
+
+// Cases returns the current corpus. v2 extends the immutable v1 definitions
+// with delayed async delivery and leaves all v1 fault parameters unchanged.
+func Cases() []Case {
+	cases := append([]Case(nil), CasesV1()...)
+	cases = append(cases, Case{
+		ID: "orders-completed-delay",
+		Fault: fault.Spec{Kind: fault.DelayedMessage, TargetService: "broker", Operation: Topic, TriggerOnMatch: 1, Delay: 120 * time.Millisecond, Seed: 20260907},
+		ExpectedBehavior: "broker delays the orders.completed envelope before delivering one copy to each worker while the synchronous request remains successful",
+	})
+	return cases
 }
 
 func Topology() []string {
@@ -118,6 +133,21 @@ func ValidateObserved(c Case, outcome replay.OutcomeSignature, events []model.Ev
 		if sig.PublishCount != 1 || sig.ConsumeCounts["notification"] != 2 || sig.ConsumeCounts["audit"] != 2 || sig.ConsumeCounts["analytics"] != 2 {
 			return fmt.Errorf("unexpected duplicate delivery signature: %+v", sig)
 		}
+	case fault.DelayedMessage:
+		if outcome.HTTPStatus != http.StatusCreated || outcome.Classification != "success" {
+			return fmt.Errorf("expected successful HTTP 201 outcome, got %+v", outcome)
+		}
+		if countFault(events, fault.DelayedMessage) != 1 {
+			return fmt.Errorf("expected exactly one delayed_message fault event")
+		}
+		delivery := replay.MessageDelivery(events, Topic)
+		if delivery.PublishCount != 1 || delivery.ConsumeCounts["notification"] != 1 || delivery.ConsumeCounts["audit"] != 1 || delivery.ConsumeCounts["analytics"] != 1 {
+			return fmt.Errorf("delayed message changed delivery multiplicity: %+v", delivery)
+		}
+		delay := replay.MessageDelay(events, Topic)
+		if !replay.MeetsMinimumMessageDelay(delay, c.Fault.Delay) {
+			return fmt.Errorf("delayed message did not meet %v threshold: %+v", c.Fault.Delay, delay)
+		}
 	default:
 		return fmt.Errorf("corpus case %q uses unsupported validation kind %q", c.ID, c.Fault.Kind)
 	}
@@ -126,6 +156,7 @@ func ValidateObserved(c Case, outcome replay.OutcomeSignature, events []model.Ev
 
 func ObservedBehavior(outcome replay.OutcomeSignature, events []model.Event) string {
 	messages := replay.MessageDelivery(events, Topic)
+	delay := replay.MessageDelay(events, Topic)
 	services := make([]string, 0, len(messages.ConsumeCounts))
 	for service := range messages.ConsumeCounts {
 		services = append(services, service)
@@ -138,7 +169,7 @@ func ObservedBehavior(outcome replay.OutcomeSignature, events []model.Event) str
 		}
 		consumes += fmt.Sprintf("%s=%d", service, messages.ConsumeCounts[service])
 	}
-	return fmt.Sprintf("classification=%s http=%d terminal=%s error=%s message_publish=%d message_consumes=%s", outcome.Classification, outcome.HTTPStatus, outcome.TerminalService, outcome.ErrorCode, messages.PublishCount, consumes)
+	return fmt.Sprintf("classification=%s http=%d terminal=%s error=%s message_publish=%d message_consumes=%s message_min_delay_us=%d", outcome.Classification, outcome.HTTPStatus, outcome.TerminalService, outcome.ErrorCode, messages.PublishCount, consumes, delay.MinConsumeDelayMicros)
 }
 
 func countFault(events []model.Event, kind fault.Kind) int {
