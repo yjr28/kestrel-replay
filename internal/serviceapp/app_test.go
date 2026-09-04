@@ -67,6 +67,12 @@ func TestInventoryConnectionResetIsRecordedAsTransportFailure(t *testing.T) {
 	if requestErr == nil {
 		t.Fatal("expected connection reset to abort the HTTP exchange")
 	}
+
+	// A hijacked/reset connection is no longer tracked by httptest.Server, so
+	// closing the server does not prove the handler's deferred span emission has
+	// completed. Keep the exporter alive and wait for both expected records at
+	// the collector before closing either side of the test harness.
+	events := loadCollectorEvents(t, server, collectorServer.URL, 2)
 	srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -74,7 +80,6 @@ func TestInventoryConnectionResetIsRecordedAsTransportFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events := loadCollectorEvents(t, server, collectorServer.URL, 2)
 	var sawFault, sawResetSpan bool
 	for _, event := range events {
 		if event.Kind == model.KindFault && event.Attributes["fault.kind"] == string(fault.ConnectionReset) {
