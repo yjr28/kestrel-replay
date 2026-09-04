@@ -14,7 +14,7 @@ Reissue recorded requests/events with equivalent input identity and configuratio
 
 Reapply a recorded failure schedule: target, trigger, seed, and fault parameters are used in a fresh execution.
 
-**Status:** implemented for the first latency-fault vertical slice.
+**Status:** implemented for the tested latency and connection-reset fault slices.
 
 ### Level C — message-order replay
 
@@ -42,18 +42,28 @@ The signature is also hashed to a short digest for terminal output. Replay succe
 
 ## Current latency replay
 
-The demo records/configures a latency fault at `inventory/check`, runs a failing request, then creates a fresh system with the same fault spec and executes again. The replay passes only if the outcome signature matches.
+The latency case records/configures a fault at `inventory/check`, runs a failing request, persists the experiment, then creates a fresh system from the recorded artifact and executes again. The replay passes only if the outcome signature matches.
 
-This proves a narrow but real statement:
+The currently tested signature is a distributed failure with HTTP 504, terminal service `inventory`, and error code `inventory_timeout`.
 
-> Kestrel can reproduce the tested timeout outcome by replaying the recorded latency failure schedule in the current controlled demo topology.
+## Current connection-reset replay
 
-It does **not** prove:
+The reset case records a `connection_reset` fault at `inventory/check`. The inventory process terminates the accepted TCP connection with reset semantics instead of returning an HTTP failure response. The order process must observe and classify the transport failure as `inventory_connection_reset`; the recorded signature uses HTTP 502 and terminal service `inventory`.
+
+The integration test persists the original reset evidence and launches `kestrel-artifact-replay` as a separate process. That replay process receives only the artifact directory and a fresh `kestrel-node` binary path. Replay passes only when the fresh topology produces the same semantic outcome signature.
+
+These cases prove narrow but real statements:
+
+- Kestrel can reproduce the tested timeout outcome by replaying a recorded latency failure schedule in the controlled topology.
+- Kestrel can reproduce the tested TCP-reset outcome by replaying a recorded connection-reset schedule in the Unix/Linux multi-process topology used by CI.
+
+They do **not** prove:
 
 - deterministic instruction scheduling;
 - identical timestamps or durations;
 - identical generated trace/span IDs;
 - general reproduction of arbitrary network failures;
+- identical socket-error presentation across all operating systems or proxies;
 - deterministic replay across Kubernetes nodes.
 
 ## Future replay reports

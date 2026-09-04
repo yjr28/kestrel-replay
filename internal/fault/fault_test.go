@@ -1,6 +1,7 @@
 package fault
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,5 +28,23 @@ func TestControllerDeterministic(t *testing.T) {
 	}
 	if da.Delay != db.Delay {
 		t.Fatalf("same seed produced different delays: %v vs %v", da.Delay, db.Delay)
+	}
+}
+
+func TestConnectionResetSpecValidates(t *testing.T) {
+	spec := Spec{Kind: ConnectionReset, TargetService: "inventory", Operation: "check", TriggerOnMatch: 1, Seed: 7}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("valid reset spec rejected: %v", err)
+	}
+	spec.Delay = time.Millisecond
+	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "does not accept delay") {
+		t.Fatalf("expected reset delay rejection, got %v", err)
+	}
+}
+
+func TestUnimplementedFaultKindRejected(t *testing.T) {
+	spec := Spec{Kind: PacketLoss, TargetService: "inventory", TriggerOnMatch: 1, Seed: 7}
+	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("expected unimplemented fault rejection, got %v", err)
 	}
 }

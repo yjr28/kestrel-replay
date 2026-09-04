@@ -17,21 +17,21 @@ Each experiment record is expected to contain:
 - expected behavior;
 - observed outcome signature.
 
-## Fault classes
+A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually implements it. Enum values may exist ahead of implementation for design clarity, but unsupported kinds are rejected rather than silently behaving as no-ops.
 
-Planned classes:
+## Fault classes
 
 | Class | Status | Replay expectation |
 |---|---|---|
-| latency | implemented in first slice | Level B failure-schedule replay |
-| packet loss | planned | controlled schedule; outcome may vary by TCP behavior |
-| connection reset | planned | Level B where injector can target connection/RPC deterministically |
-| service crash | planned | Level B |
-| service restart | planned | Level B |
-| RPC timeout | planned | Level B |
-| duplicate message | planned | Level B/C |
-| delayed message | planned | Level B/C |
-| reordered async messages | planned | Level C where broker/test harness permits ordering control |
+| latency | implemented | Level B failure-schedule replay |
+| packet loss | planned; rejected by current validator | controlled schedule; outcome may vary by TCP behavior |
+| connection reset | implemented | Level B failure-schedule replay |
+| service crash | planned; rejected by current validator | Level B |
+| service restart | planned; rejected by current validator | Level B |
+| RPC timeout | planned; rejected by current validator | Level B |
+| duplicate message | planned; rejected by current validator | Level B/C |
+| delayed message | planned; rejected by current validator | Level B/C |
+| reordered async messages | planned; rejected by current validator | Level C where broker/test harness permits ordering control |
 
 ## Implemented latency fault
 
@@ -47,11 +47,26 @@ Planned classes:
 
 A controller counts matching execution points and fires on the configured match. Jitter, when enabled, is generated from the recorded seed so the chosen injected delay is repeatable.
 
-The demo currently injects latency into `inventory/check`; the order service has a tighter dependency timeout than the upstream proxy layers, preserving the observed terminal cause as `inventory_timeout`.
+The latency integration case injects delay into `inventory/check`; the order service has a tighter dependency timeout than the upstream proxy layers, preserving the observed terminal cause as `inventory_timeout` with HTTP 504.
+
+## Implemented connection-reset fault
+
+The connection-reset case targets the same `inventory/check` boundary but does not simulate failure with an HTTP error. The inventory service hijacks the accepted HTTP connection, applies TCP linger zero when the underlying connection is TCP, and closes it so the Linux integration environment observes a real reset at the caller.
+
+The application instrumentation records two pieces of evidence:
+
+- an explicit fault-injector event with `fault.kind=connection_reset`;
+- the affected inventory span with `status=error`, `http.status_code=0`, and `transport.error=connection_reset`.
+
+The order client classifies an actual `ECONNRESET` separately from deadline expiry. The tested outcome signature is HTTP 502, terminal service `inventory`, error code `inventory_connection_reset`. Other unrecognized transport errors remain `inventory_transport_error`; they are not relabeled as resets just because a reset fault was requested.
+
+The multi-process integration test persists this failure, reloads the artifact, launches a separate replay process with the recorded fault schedule, and requires the replayed outcome signature to match.
 
 ## What the seed does not guarantee
 
-A seed does not make Linux scheduling, TCP behavior, GC, or arbitrary concurrency deterministic. It guarantees that Kestrel's own randomized injector decisions can be reproduced. Replay success is determined by the resulting outcome signature, not by assuming bit-for-bit identical execution.
+A seed does not make Linux scheduling, TCP behavior, GC, or arbitrary concurrency deterministic. It guarantees that Kestrel's own randomized injector decisions and trigger schedule can be reproduced. Replay success is determined by the resulting outcome signature, not by assuming bit-for-bit identical execution.
+
+For connection reset, the current proven environment is the Unix/Linux process topology used by CI and the demo architecture. This is not a claim that every operating system, proxy, service mesh, or Kubernetes network path will surface reset errors identically.
 
 ## Corpus policy
 

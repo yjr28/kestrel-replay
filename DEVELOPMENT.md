@@ -15,6 +15,7 @@ Future eBPF development will require Linux, a supported kernel/BTF setup, Rust/C
 make test
 make vet
 make check
+make integration
 make demo
 # fast legacy in-process harness
 make demo-inprocess
@@ -45,13 +46,15 @@ Current:
 
 - normalized event validation unit tests;
 - deterministic fault-controller unit tests;
+- explicit rejection tests for fault kinds that are declared but not implemented;
 - causal graph and divergence unit tests;
 - outcome-signature unit tests;
 - collector queue/overload and exporter tests;
 - W3C trace-context tests;
+- real TCP connection-reset injection and transport-classification tests;
 - immutable experiment artifact integrity/schema/immutability tests;
 - guarded stale-writer recovery tests covering dead-owner cleanup, live-owner refusal, young-reservation refusal, and committed-artifact preservation;
-- multi-process healthy → persisted failure → separate-process artifact replay integration test across 10 service processes + broker + collector.
+- multi-process latency and connection-reset artifact replay tests across 10 service processes + broker + collector.
 
 Planned:
 

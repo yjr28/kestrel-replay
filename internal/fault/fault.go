@@ -41,8 +41,17 @@ func (s Spec) Validate() error {
 	if s.JitterFraction < 0 || s.JitterFraction > 1 {
 		return fmt.Errorf("jitter_fraction must be between 0 and 1")
 	}
-	if s.Kind == Latency && s.Delay <= 0 {
-		return fmt.Errorf("latency fault requires positive delay")
+	switch s.Kind {
+	case Latency:
+		if s.Delay <= 0 {
+			return fmt.Errorf("latency fault requires positive delay")
+		}
+	case ConnectionReset:
+		if s.Delay != 0 || s.JitterFraction != 0 {
+			return fmt.Errorf("connection reset does not accept delay or jitter parameters")
+		}
+	default:
+		return fmt.Errorf("fault kind %q is not implemented", s.Kind)
 	}
 	return nil
 }

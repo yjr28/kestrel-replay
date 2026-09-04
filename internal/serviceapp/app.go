@@ -1,15 +1,19 @@
 package serviceapp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/yjr28/kestrel-replay/internal/broker"
@@ -95,18 +99,27 @@ func (a *App) instrument(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w}
 		ctx := context.WithValue(r.Context(), spanKey{}, current)
 		next.ServeHTTP(sw, r.WithContext(ctx))
-		if sw.status == 0 {
-			sw.status = http.StatusOK
-		}
+
 		status := "ok"
-		if sw.status >= 400 {
+		attributes := map[string]string{"duration_us": strconv.FormatInt(time.Since(start).Microseconds(), 10)}
+		if sw.hijacked {
 			status = "error"
+			attributes["http.status_code"] = "0"
+			attributes["transport.error"] = "connection_reset"
+		} else {
+			if sw.status == 0 {
+				sw.status = http.StatusOK
+			}
+			attributes["http.status_code"] = strconv.Itoa(sw.status)
+			if sw.status >= 400 {
+				status = "error"
+			}
 		}
 		a.emit(model.Event{
 			ID: a.nextID("event"), Source: model.SourceApplication, Kind: model.KindSpan,
 			TraceID: traceID, SpanID: spanID, ParentSpanID: parentSpan, CorrelationID: requestID,
 			Service: a.cfg.Role, Operation: operationFor(a.cfg.Role), Timestamp: start, Status: status,
-			Attributes: map[string]string{"http.status_code": strconv.Itoa(sw.status), "duration_us": strconv.FormatInt(time.Since(start).Microseconds(), 10)},
+			Attributes: attributes,
 		})
 	})
 }
@@ -136,9 +149,10 @@ func (a *App) serveRole(w http.ResponseWriter, r *http.Request) {
 		}{{"inventory", a.cfg.InventoryURL, 40 * time.Millisecond}, {"pricing", a.cfg.PricingURL, 200 * time.Millisecond}, {"payment", a.cfg.PaymentURL, 200 * time.Millisecond}} {
 			status, body, hdr, err := a.call(r.Context(), dep.url, traceID, spanID, requestID, "", dep.timeout, nil)
 			if err != nil {
+				code, httpStatus := dependencyTransportFailure(dep.name, err)
 				w.Header().Set(transport.FailureServiceHeader, dep.name)
-				w.Header().Set(transport.ErrorCodeHeader, dep.name+"_timeout")
-				http.Error(w, dep.name+"_timeout", http.StatusGatewayTimeout)
+				w.Header().Set(transport.ErrorCodeHeader, code)
+				http.Error(w, code, httpStatus)
 				return
 			}
 			if status >= 400 {
@@ -171,13 +185,30 @@ func (a *App) serveRole(w http.ResponseWriter, r *http.Request) {
 	case "inventory":
 		d := a.faults.Decide("inventory", "check")
 		if d.Inject {
+			attributes := map[string]string{
+				"fault.kind":       string(d.Spec.Kind),
+				"target.service":   d.Spec.TargetService,
+				"target.operation": d.Spec.Operation,
+				"seed":             strconv.FormatInt(d.Spec.Seed, 10),
+			}
+			if d.Delay > 0 {
+				attributes["delay_us"] = strconv.FormatInt(d.Delay.Microseconds(), 10)
+			}
 			a.emit(model.Event{
 				ID: a.nextID("event"), Source: model.SourceFault, Kind: model.KindFault,
 				TraceID: traceID, CorrelationID: requestID, Service: "inventory", Operation: "check", Timestamp: time.Now().UTC(),
-				Attributes: map[string]string{"fault.kind": string(d.Spec.Kind), "target.service": d.Spec.TargetService, "target.operation": d.Spec.Operation, "seed": strconv.FormatInt(d.Spec.Seed, 10), "delay_us": strconv.FormatInt(d.Delay.Microseconds(), 10)},
+				Attributes: attributes,
 			})
-			if d.Spec.Kind == fault.Latency {
+			switch d.Spec.Kind {
+			case fault.Latency:
 				time.Sleep(d.Delay)
+			case fault.ConnectionReset:
+				if err := resetTCPConnection(w); err != nil {
+					w.Header().Set(transport.FailureServiceHeader, "inventory")
+					w.Header().Set(transport.ErrorCodeHeader, "inventory_reset_injector_failed")
+					http.Error(w, "inventory_reset_injector_failed", http.StatusInternalServerError)
+				}
+				return
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -195,13 +226,49 @@ func (a *App) serveRole(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func dependencyTransportFailure(service string, err error) (string, int) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return service + "_timeout", http.StatusGatewayTimeout
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return service + "_timeout", http.StatusGatewayTimeout
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return service + "_connection_reset", http.StatusBadGateway
+	}
+	return service + "_transport_error", http.StatusBadGateway
+}
+
+func resetTCPConnection(w http.ResponseWriter) error {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return errors.New("response writer does not support connection hijacking")
+	}
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return fmt.Errorf("hijack connection: %w", err)
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		if err := tcp.SetLinger(0); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("set TCP linger: %w", err)
+		}
+	}
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("close reset connection: %w", err)
+	}
+	return nil
+}
+
 func (a *App) proxy(w http.ResponseWriter, r *http.Request, target, spanID string, timeout time.Duration) {
 	current, _ := r.Context().Value(spanKey{}).(spanContext)
 	status, body, hdr, err := a.call(r.Context(), target, current.TraceID, spanID, current.RequestID, "", timeout, nil)
 	if err != nil {
+		code, httpStatus := dependencyTransportFailure(a.cfg.Role, err)
 		w.Header().Set(transport.FailureServiceHeader, a.cfg.Role)
-		w.Header().Set(transport.ErrorCodeHeader, a.cfg.Role+"_downstream_timeout")
-		http.Error(w, a.cfg.Role+"_downstream_timeout", http.StatusGatewayTimeout)
+		w.Header().Set(transport.ErrorCodeHeader, code)
+		http.Error(w, code, httpStatus)
 		return
 	}
 	copyFailureHeaders(w.Header(), hdr)
@@ -275,7 +342,8 @@ func operationFor(role string) string {
 
 type statusWriter struct {
 	http.ResponseWriter
-	status int
+	status   int
+	hijacked bool
 }
 
 func (w *statusWriter) WriteHeader(code int) {
@@ -290,6 +358,17 @@ func (w *statusWriter) Write(p []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	return w.ResponseWriter.Write(p)
+}
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("underlying response writer does not support connection hijacking")
+	}
+	conn, rw, err := hijacker.Hijack()
+	if err == nil {
+		w.hijacked = true
+	}
+	return conn, rw, err
 }
 
 func copyFailureHeaders(dst, src http.Header) {

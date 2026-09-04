@@ -12,7 +12,7 @@ vet:
 	go vet ./...
 
 integration:
-	go test ./integration -run TestMultiProcessFailureReplay -count=1 -v
+	go test ./integration -count=1 -v
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)

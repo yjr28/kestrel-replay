@@ -2,7 +2,7 @@
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
-> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay, with guarded stale-writer recovery after abrupt process death.
+> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency and real TCP connection-reset injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay for both supported fault classes. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay, with guarded stale-writer recovery after abrupt process death.
 
 Kestrel deliberately does **not** claim that arbitrary distributed executions can be made deterministic. Replay semantics are scoped and measured per supported fault class.
 
@@ -26,7 +26,7 @@ flowchart LR
     B --> AU[audit]
     B --> AN[analytics]
 
-    FI[fault controller] -. seeded latency .-> I
+    FI[fault controller] -. latency / TCP reset .-> I
     G -. spans .-> COL[collector]
     A -. spans .-> COL
     AC -. spans .-> COL
@@ -39,7 +39,7 @@ flowchart LR
     AN -. spans/events .-> COL
 ```
 
-The default demo now launches each logical service as a separate OS process, plus separate broker and collector processes, over loopback TCP. An older in-process harness remains available as a fast unit-level development path via `make demo-inprocess`. The topology is not containerized yet.
+The default demo launches each logical service as a separate OS process, plus separate broker and collector processes, over loopback TCP. An older in-process harness remains available as a fast unit-level development path via `make demo-inprocess`. The topology is not containerized yet.
 
 ## Quick start
 
@@ -49,7 +49,7 @@ Requirements: Go 1.23+.
 make demo
 ```
 
-The demo performs three executions:
+The default terminal demo uses the latency case and performs three executions:
 
 1. healthy request;
 2. request with a seeded latency fault at `inventory/check`;
@@ -77,7 +77,25 @@ The output also prints the artifact directory and event-log SHA-256. Re-run that
 make artifact-replay ARTIFACT=.kestrel/experiments/<experiment-id>
 ```
 
+Run the full multi-process fault/replay integration corpus, including the real TCP reset case, with:
+
+```bash
+make integration
+```
+
 Exact durations and event counts are runtime measurements and are intentionally not hard-coded as benchmark claims.
+
+## Supported fault slices
+
+### Latency → timeout
+
+A seeded delay at `inventory/check` exceeds the order service's dependency timeout. The recorded/replayed outcome is HTTP 504 with terminal service `inventory` and error code `inventory_timeout`.
+
+### TCP connection reset
+
+The inventory service hijacks the accepted HTTP connection and forces TCP reset semantics rather than returning an HTTP error. Kestrel records both the injector event and an errored inventory span with `transport.error=connection_reset`. The order service distinguishes an actual reset from a deadline expiry; the tested recorded/replayed outcome is HTTP 502 with terminal service `inventory` and error code `inventory_connection_reset`.
+
+Fault kinds that are declared for future work but not implemented are rejected during spec validation instead of silently becoming no-ops.
 
 ## What is recorded today
 
@@ -89,13 +107,13 @@ The normalized event schema currently supports:
 - timestamp and status;
 - arbitrary typed-as-string attributes;
 - asynchronous message IDs and publish/consume actions;
-- failure-injector metadata including fault kind, target, seed, and injected delay.
+- failure-injector metadata including fault kind, target, seed, and injected parameters.
 
 The schema is intentionally source-neutral so OpenTelemetry and eBPF events can enter the same causal pipeline later.
 
 ## Durable experiment artifacts
 
-Completed experiments are stored as `manifest.json` + `events.ndjson` + `checksums.json`. The manifest is schema-versioned; both manifest and event bytes are SHA-256 checked on reload; experiment IDs are path-safe and immutable through the storage API. The multi-process integration test proves that a separate replay process can reconstruct the recorded graph and reproduce the saved outcome using only the artifact path and a fresh node binary.
+Completed experiments are stored as `manifest.json` + `events.ndjson` + `checksums.json`. The manifest is schema-versioned; both manifest and event bytes are SHA-256 checked on reload; experiment IDs are path-safe and immutable through the storage API. Multi-process integration tests prove that a separate replay process can reconstruct recorded evidence and reproduce the saved outcome using only the artifact path and a fresh node binary.
 
 Abrupt writer death can leave a reservation and deterministic temporary directory. Cleanup is deliberately guarded rather than automatic: Kestrel requires a staleness threshold, same-host ownership, and a confirmed-dead PID before deleting an uncommitted writer's state. Use `make artifact-recover EXPERIMENT=<id>`; committed artifact directories are never mutated by recovery.
 
@@ -113,17 +131,21 @@ A graph edge represents recorded evidence, not metaphysical certainty. Ambiguity
 
 ## Replay semantics
 
-The current implementation supports **Level B — failure schedule replay** for the tested latency fault: the same seed, target, trigger position, and delay configuration are applied to a fresh execution, then the resulting outcome signature is compared with the recorded failing execution.
+The current implementation supports **Level B — failure schedule replay** for two tested classes:
 
-The outcome signature includes failure classification, HTTP status, terminal service, error code, and causal path. See [REPLAY_SEMANTICS.md](REPLAY_SEMANTICS.md).
+- latency: replay the recorded seed, target, trigger position, delay, and jitter configuration;
+- connection reset: replay the recorded target/trigger/seed and force the same dependency connection reset in a fresh topology.
+
+Replay success is semantic equality of the recorded and replayed outcome signatures, which include failure classification, HTTP status, terminal service, error code, and causal path. See [REPLAY_SEMANTICS.md](REPLAY_SEMANTICS.md).
 
 ## Development commands
 
 ```bash
-make test       # unit + end-to-end replay tests
+make test       # unit + integration/replay tests
 make vet        # static checks
 make check      # test + vet
-make demo       # build/run the 12-process healthy/failure/replay demo
+make integration # full multi-process fault/replay corpus
+make demo       # build/run the 12-process latency healthy/failure/replay demo
 make demo-inprocess # fast legacy in-process harness
 make artifact-replay ARTIFACT=.kestrel/experiments/<id>
 make artifact-recover EXPERIMENT=<id> # guarded cleanup of stale writer state
@@ -140,7 +162,7 @@ Target numbers such as 25k+ req/s, <4.20% p95 overhead, or >95% supported-fault 
 
 ## Security posture
 
-The first slice records identifiers and metadata only; it does not record request bodies. The production design will default to metadata allowlists/redaction, bounded retention, explicit sampling, and documented eBPF privilege requirements. See [ARCHITECTURE.md](ARCHITECTURE.md#security-boundary).
+The current slice records identifiers and metadata only; it does not record request bodies. The production design will default to metadata allowlists/redaction, bounded retention, explicit sampling, and documented eBPF privilege requirements. See [ARCHITECTURE.md](ARCHITECTURE.md#security-boundary).
 
 ## Roadmap
 

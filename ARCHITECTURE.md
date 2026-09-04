@@ -55,8 +55,9 @@ flowchart TB
 - The broker is a real separate network process with a bounded queue, but it is not durable and does not yet support controlled reordering/duplication faults.
 - Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters instead of blocking indefinitely.
 - The live collector store is in-memory, but completed experiments are committed to immutable versioned artifact directories with NDJSON events plus manifest/event SHA-256 checks. PostgreSQL indexing is not implemented yet.
+- The fault runtime currently accepts only the two classes it genuinely implements: latency and TCP connection reset. Declared future kinds are rejected at validation time rather than silently no-oping.
 - No kernel/eBPF evidence is collected yet.
-- The current demo proves Level-B replay for the tested latency/timeout path only.
+- Level-B replay is proven by the integration corpus for the tested latency/timeout and TCP-reset paths. The default terminal demo currently presents the latency path.
 
 These are measured implementation boundaries, not claims about the target architecture.
 

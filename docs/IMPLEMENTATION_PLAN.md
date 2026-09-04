@@ -28,7 +28,7 @@ Delivered:
 - unit tests, `go vet`, and CI;
 - architecture/failure/replay/benchmark/development docs.
 
-Limitations at the end of Milestone 1 (some have since been removed in Milestone 2):
+Limitations at the end of Milestone 1 (some have since been removed in later milestones):
 
 - one process owned all logical services;
 - custom tracing headers instead of OpenTelemetry;
@@ -86,7 +86,7 @@ Still required:
 - explicit retention/redaction configuration;
 - migration/compatibility policy for future manifest/event schema versions.
 
-Exit gate: **achieved for the current latency-fault slice.** An experiment can be stopped, loaded from storage, graphed, and replayed without hidden in-memory state, and abandoned writer state can be recovered conservatively after abrupt process death. PostgreSQL is deliberately not claimed as implemented.
+Exit gate: **achieved for the currently supported fault slices.** An experiment can be stopped, loaded from storage, graphed, and replayed without hidden in-memory state, and abandoned writer state can be recovered conservatively after abrupt process death. PostgreSQL is deliberately not claimed as implemented.
 
 ## Milestone 4 — Rust/eBPF evidence
 
@@ -100,13 +100,24 @@ Exit gate: documentation demonstrates a real debugging fact visible in eBPF evid
 
 ## Milestone 5 — fault corpus + richer replay
 
-- connection reset;
+**Status: in progress**
+
+Completed:
+
+- latency timeout failure with Level-B artifact replay;
+- real TCP connection-reset injection at `inventory/check` using a forced socket reset rather than an HTTP error;
+- distinct reset transport evidence and `inventory_connection_reset` outcome classification;
+- separate-process artifact replay test for the reset failure;
+- validation that rejects declared-but-unimplemented fault kinds instead of silently no-oping them.
+
+Still required:
+
 - service crash/restart;
-- RPC timeout;
+- RPC timeout as an explicit caller-side fault class;
 - duplicate/delayed async message;
 - controlled message reordering;
-- packet-loss mechanism if environment permits defensible targeting;
-- immutable seeded incident manifests;
+- packet-loss mechanism if the environment permits defensible targeting;
+- immutable versioned incident corpus and replay-regression runner;
 - Level-C message-order replay where supported.
 
 Exit gate: fixed corpus with automated replay pass/fail artifacts.
