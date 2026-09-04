@@ -196,8 +196,15 @@ func cloneMessageFlowRunEvidence(in []MessageFlowRunEvidence) []MessageFlowRunEv
 func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string) {
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
-	for _, event := range model.Sorted(events) {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" {
+	sortedEvents := model.Sorted(events)
+	eventIDCounts := make(map[string]int)
+	for _, event := range sortedEvents {
+		if event.Source == model.SourceApplication && event.Kind == model.KindMessage && strings.TrimSpace(event.ID) != "" {
+			eventIDCounts[event.ID]++
+		}
+	}
+	for _, event := range sortedEvents {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" || eventIDCounts[event.ID] != 1 {
 			continue
 		}
 		topic := event.Attributes["topic"]
