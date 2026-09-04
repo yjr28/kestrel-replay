@@ -54,12 +54,12 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 			if spec.TargetService != "inventory" {
 				return Result{}, fmt.Errorf("service crash replay currently supports only target service inventory")
 			}
-		case fault.DuplicateMessage:
+		case fault.DuplicateMessage, fault.DelayedMessage:
 			if spec.TargetService != "broker" || spec.Operation != ordersCompletedTopic {
-				return Result{}, fmt.Errorf("duplicate message replay currently supports only broker/%s", ordersCompletedTopic)
+				return Result{}, fmt.Errorf("broker async replay currently supports only broker/%s", ordersCompletedTopic)
 			}
 			if spec.TriggerOnMatch != 1 {
-				return Result{}, fmt.Errorf("single-request duplicate message replay currently supports only trigger_on_match=1")
+				return Result{}, fmt.Errorf("single-request broker async replay currently supports only trigger_on_match=1")
 			}
 		}
 	}
@@ -113,12 +113,13 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 		"-workers=" + strings.Join([]string{url("notification"), url("audit"), url("analytics")}, ","),
 		"-queue-capacity=1024",
 	}
-	if spec != nil && spec.Kind == fault.DuplicateMessage {
+	if spec != nil && (spec.Kind == fault.DuplicateMessage || spec.Kind == fault.DelayedMessage) {
 		brokerArgs = append(brokerArgs,
 			"-collector="+url("collector"),
 			"-fault-kind="+string(spec.Kind),
 			"-fault-target="+spec.TargetService,
 			"-fault-operation="+spec.Operation,
+			"-fault-delay="+spec.Delay.String(),
 			"-fault-seed="+strconv.FormatInt(spec.Seed, 10),
 			"-fault-trigger="+strconv.Itoa(spec.TriggerOnMatch),
 		)
@@ -206,6 +207,9 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 			// Healthy successful path has 14 events. Duplicating the fan-out adds
 			// one extra message + span per worker (6 events) plus one injector event.
 			minimum = 21
+		case fault.DelayedMessage:
+			// Delaying preserves the healthy delivery shape and adds one injector event.
+			minimum = 15
 		default:
 			minimum = 6
 		}

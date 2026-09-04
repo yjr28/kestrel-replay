@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yjr28/kestrel-replay/internal/experiment"
+	"github.com/yjr28/kestrel-replay/internal/fault"
 	"github.com/yjr28/kestrel-replay/internal/graph"
 	"github.com/yjr28/kestrel-replay/internal/orchestrator"
 	"github.com/yjr28/kestrel-replay/internal/replay"
@@ -27,6 +28,10 @@ type report struct {
 	RecordedMessages     replay.MessageDeliverySignature `json:"recorded_message_delivery"`
 	ReplayedMessages     replay.MessageDeliverySignature `json:"replayed_message_delivery"`
 	MessageDeliveryMatch bool                            `json:"message_delivery_match"`
+	RecordedMessageDelay replay.MessageDelaySignature    `json:"recorded_message_delay"`
+	ReplayedMessageDelay replay.MessageDelaySignature    `json:"replayed_message_delay"`
+	MessageDelayEligible bool                            `json:"message_delay_eligible"`
+	MessageDelayMatch    bool                            `json:"message_delay_match"`
 	ReplayMatch          bool                            `json:"replay_match"`
 }
 
@@ -61,13 +66,24 @@ func main() {
 	messageMatch := replay.EquivalentMessageDelivery(recordedMessages, replayedMessages)
 	outcomeMatch := replay.Equivalent(artifact.Manifest.Outcome, result.Outcome)
 
+	recordedDelay := replay.MessageDelay(artifact.Events, replayMessageTopic)
+	replayedDelay := replay.MessageDelay(result.Events, replayMessageTopic)
+	delayEligible := artifact.Manifest.Fault != nil && artifact.Manifest.Fault.Kind == fault.DelayedMessage
+	delayMatch := true
+	if delayEligible {
+		minimum := artifact.Manifest.Fault.Delay
+		delayMatch = replay.MeetsMinimumMessageDelay(recordedDelay, minimum) && replay.MeetsMinimumMessageDelay(replayedDelay, minimum)
+	}
+
 	r := report{
 		ExperimentID: artifact.Manifest.ExperimentID, RecordedEventCount: len(artifact.Events),
 		RecordedGraphNodes: len(g.Nodes), RecordedGraphEdges: len(g.Edges),
 		RecordedOutcome: artifact.Manifest.Outcome, ReplayedOutcome: result.Outcome,
 		RecordedMessages: recordedMessages, ReplayedMessages: replayedMessages,
 		MessageDeliveryMatch: messageMatch,
-		ReplayMatch: outcomeMatch && messageMatch,
+		RecordedMessageDelay: recordedDelay, ReplayedMessageDelay: replayedDelay,
+		MessageDelayEligible: delayEligible, MessageDelayMatch: delayMatch,
+		ReplayMatch: outcomeMatch && messageMatch && delayMatch,
 	}
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
@@ -77,7 +93,11 @@ func main() {
 		}
 	} else {
 		fmt.Printf("experiment=%s recorded_events=%d graph_nodes=%d graph_edges=%d\n", r.ExperimentID, r.RecordedEventCount, r.RecordedGraphNodes, r.RecordedGraphEdges)
-		fmt.Printf("recorded=%s/%s replayed=%s/%s message_delivery_match=%t replay_match=%t\n", r.RecordedOutcome.TerminalService, r.RecordedOutcome.ErrorCode, r.ReplayedOutcome.TerminalService, r.ReplayedOutcome.ErrorCode, r.MessageDeliveryMatch, r.ReplayMatch)
+		fmt.Printf("recorded=%s/%s replayed=%s/%s message_delivery_match=%t", r.RecordedOutcome.TerminalService, r.RecordedOutcome.ErrorCode, r.ReplayedOutcome.TerminalService, r.ReplayedOutcome.ErrorCode, r.MessageDeliveryMatch)
+		if r.MessageDelayEligible {
+			fmt.Printf(" message_delay_match=%t recorded_min_delay_us=%d replayed_min_delay_us=%d", r.MessageDelayMatch, r.RecordedMessageDelay.MinConsumeDelayMicros, r.ReplayedMessageDelay.MinConsumeDelayMicros)
+		}
+		fmt.Printf(" replay_match=%t\n", r.ReplayMatch)
 	}
 	if !r.ReplayMatch {
 		os.Exit(2)
