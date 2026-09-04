@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -197,7 +198,10 @@ func RankDivergencesAgainstProfile(profile HealthyProfile, failing []model.Event
 					delta = -delta
 				}
 				threshold := minimumLatencyThreshold
-				madThreshold := 6 * baseline.MedianAbsDeviation
+				madThreshold, ok := multiplyDuration(baseline.MedianAbsDeviation, 6)
+				if !ok {
+					continue
+				}
 				if madThreshold > threshold {
 					threshold = madThreshold
 				}
@@ -277,4 +281,14 @@ func representativeEventID(samples []healthySpanSample, median time.Duration) st
 		}
 	}
 	return bestID
+}
+
+func multiplyDuration(value time.Duration, factor int64) (time.Duration, bool) {
+	if value < 0 || factor < 0 {
+		return 0, false
+	}
+	if factor != 0 && value > time.Duration(math.MaxInt64/factor) {
+		return 0, false
+	}
+	return value * time.Duration(factor), true
 }
