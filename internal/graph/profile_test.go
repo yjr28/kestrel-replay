@@ -115,6 +115,17 @@ func TestHealthyProfileRejectsDuplicateServiceOperationInRun(t *testing.T) {
 	}
 }
 
+func TestHealthyProfileRejectsReusedEventIdentityInRun(t *testing.T) {
+	now := time.Now().UTC()
+	_, err := BuildHealthyProfile([][]model.Event{
+		{profileSpan("shared", "order", "create", "ok", 1000, now), profileSpan("shared", "inventory", "check", "ok", 1100, now)},
+		{profileSpan("h2-order", "order", "create", "ok", 1000, now), profileSpan("h2-inventory", "inventory", "check", "ok", 1100, now)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "reuses application span event id") {
+		t.Fatalf("expected reused-event-id rejection, got %v", err)
+	}
+}
+
 func TestUnstableHealthyTopologyIsNotCalledUnexpected(t *testing.T) {
 	now := time.Now().UTC()
 	profile, err := BuildHealthyProfile([][]model.Event{
