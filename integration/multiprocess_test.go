@@ -18,14 +18,19 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/replay"
 )
 
+const ordersCompletedTopic = "orders.completed"
+
 type artifactReplayReport struct {
-	ExperimentID       string                  `json:"experiment_id"`
-	RecordedEventCount int                     `json:"recorded_event_count"`
-	RecordedGraphNodes int                     `json:"recorded_graph_nodes"`
-	RecordedGraphEdges int                     `json:"recorded_graph_edges"`
-	RecordedOutcome    replay.OutcomeSignature `json:"recorded_outcome"`
-	ReplayedOutcome    replay.OutcomeSignature `json:"replayed_outcome"`
-	ReplayMatch        bool                    `json:"replay_match"`
+	ExperimentID         string                          `json:"experiment_id"`
+	RecordedEventCount   int                             `json:"recorded_event_count"`
+	RecordedGraphNodes   int                             `json:"recorded_graph_nodes"`
+	RecordedGraphEdges   int                             `json:"recorded_graph_edges"`
+	RecordedOutcome      replay.OutcomeSignature         `json:"recorded_outcome"`
+	ReplayedOutcome      replay.OutcomeSignature         `json:"replayed_outcome"`
+	RecordedMessages     replay.MessageDeliverySignature `json:"recorded_message_delivery"`
+	ReplayedMessages     replay.MessageDeliverySignature `json:"replayed_message_delivery"`
+	MessageDeliveryMatch bool                            `json:"message_delivery_match"`
+	ReplayMatch          bool                            `json:"replay_match"`
 }
 
 func TestMultiProcessFailureReplay(t *testing.T) {
@@ -267,6 +272,100 @@ func TestMultiProcessServiceCrashReplay(t *testing.T) {
 	divergence, ok := graph.EarliestMeaningfulDivergenceForTerminalService(healthy.Events, recorded.Events, 20*time.Millisecond, recorded.Manifest.Outcome.TerminalService)
 	if !ok || divergence.Service != "inventory" || divergence.Operation != "check" || divergence.Reason != "missing_span" {
 		t.Fatalf("unexpected crash divergence ok=%t value=%+v", ok, divergence)
+	}
+}
+
+func TestMultiProcessDuplicateMessageReplay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("multi-process integration test")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("signal-based process lifecycle is currently Unix-only")
+	}
+
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	nodeBin := filepath.Join(binDir, "kestrel-node")
+	replayBin := filepath.Join(binDir, "kestrel-artifact-replay")
+	buildBinary(t, root, nodeBin, "./cmd/kestrel-node")
+	buildBinary(t, root, replayBin, "./cmd/kestrel-artifact-replay")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	spec := fault.Spec{Kind: fault.DuplicateMessage, TargetService: "broker", Operation: ordersCompletedTopic, TriggerOnMatch: 1, Seed: 20260906}
+
+	failing, err := orchestrator.RunScenario(ctx, nodeBin, &spec, "req-duplicate-failing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failing.Outcome.HTTPStatus != 201 || failing.Outcome.Classification != "success" {
+		t.Fatalf("duplicate fault should preserve synchronous success, got %+v", failing.Outcome)
+	}
+
+	sig := replay.MessageDelivery(failing.Events, ordersCompletedTopic)
+	if sig.PublishCount != 1 || sig.ConsumeCounts["notification"] != 2 || sig.ConsumeCounts["audit"] != 2 || sig.ConsumeCounts["analytics"] != 2 {
+		t.Fatalf("unexpected duplicate delivery signature: %+v", sig)
+	}
+	var sawFault bool
+	for _, event := range failing.Events {
+		if event.Kind == model.KindFault && event.Attributes["fault.kind"] == string(fault.DuplicateMessage) && event.Attributes["message.id"] != "" && event.Attributes["duplicate.extra_copies"] == "1" {
+			sawFault = true
+		}
+	}
+	if !sawFault {
+		t.Fatal("missing recorded duplicate_message injector evidence")
+	}
+
+	artifactDir, err := experiment.Save(filepath.Join(binDir, "experiments"), experiment.Record{
+		ExperimentID:     "seeded-order-duplicate",
+		Workload:         "single-create-order",
+		Topology:         []string{"gateway", "auth", "account", "order", "inventory", "pricing", "payment", "broker", "notification", "audit", "analytics", "collector"},
+		Fault:            &spec,
+		ExpectedBehavior: "broker delivers the orders.completed envelope twice to each worker while the synchronous order request remains successful",
+		ObservedBehavior: fmt.Sprintf("http=%d publish=%d notification=%d audit=%d analytics=%d", failing.Outcome.HTTPStatus, sig.PublishCount, sig.ConsumeCounts["notification"], sig.ConsumeCounts["audit"], sig.ConsumeCounts["analytics"]),
+		Outcome:          failing.Outcome,
+		Events:           failing.Events,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorded, err := experiment.Load(artifactDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded.Events) < 21 {
+		t.Fatalf("unexpected duplicate evidence count: %d", len(recorded.Events))
+	}
+	recordedSig := replay.MessageDelivery(recorded.Events, ordersCompletedTopic)
+	failing = orchestrator.Result{}
+
+	report := runArtifactReplay(t, ctx, replayBin, artifactDir, nodeBin, "req-duplicate-replay")
+	if !report.ReplayMatch || !report.MessageDeliveryMatch {
+		t.Fatalf("duplicate artifact replay mismatch: %+v", report)
+	}
+	if !replay.Equivalent(recorded.Manifest.Outcome, report.ReplayedOutcome) || !replay.EquivalentMessageDelivery(recordedSig, report.ReplayedMessages) {
+		t.Fatalf("duplicate replay semantic evidence mismatch: %+v", report)
+	}
+	if report.ReplayedMessages.PublishCount != 1 || report.ReplayedMessages.ConsumeCounts["notification"] != 2 || report.ReplayedMessages.ConsumeCounts["audit"] != 2 || report.ReplayedMessages.ConsumeCounts["analytics"] != 2 {
+		t.Fatalf("unexpected replayed duplicate delivery signature: %+v", report.ReplayedMessages)
+	}
+
+	g, err := graph.Build(recorded.Events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messageEdges := 0
+	for _, edge := range g.Edges {
+		if edge.Kind == graph.EdgeMessage {
+			messageEdges++
+		}
+	}
+	if messageEdges != 6 {
+		t.Fatalf("expected publisher to connect to six duplicate consume events, got %d", messageEdges)
 	}
 }
 

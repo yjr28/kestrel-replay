@@ -60,6 +60,13 @@ func (s Spec) Validate() error {
 		if s.TriggerOnMatch != 1 {
 			return fmt.Errorf("service crash currently supports only trigger_on_match=1")
 		}
+	case DuplicateMessage:
+		if s.Delay != 0 || s.JitterFraction != 0 {
+			return fmt.Errorf("duplicate message does not accept delay or jitter parameters")
+		}
+		if s.Operation == "" {
+			return fmt.Errorf("duplicate message requires a target operation/topic")
+		}
 	default:
 		return fmt.Errorf("fault kind %q is not implemented", s.Kind)
 	}

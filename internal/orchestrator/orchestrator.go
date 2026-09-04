@@ -20,6 +20,8 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/transport"
 )
 
+const ordersCompletedTopic = "orders.completed"
+
 type Result struct {
 	Events  []model.Event
 	Outcome replay.OutcomeSignature
@@ -43,8 +45,18 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 		if err := spec.Validate(); err != nil {
 			return Result{}, fmt.Errorf("fault spec: %w", err)
 		}
-		if spec.Kind == fault.ServiceCrash && spec.TargetService != "inventory" {
-			return Result{}, fmt.Errorf("service crash replay currently supports only target service inventory")
+		switch spec.Kind {
+		case fault.ServiceCrash:
+			if spec.TargetService != "inventory" {
+				return Result{}, fmt.Errorf("service crash replay currently supports only target service inventory")
+			}
+		case fault.DuplicateMessage:
+			if spec.TargetService != "broker" || spec.Operation != ordersCompletedTopic {
+				return Result{}, fmt.Errorf("duplicate message replay currently supports only broker/%s", ordersCompletedTopic)
+			}
+			if spec.TriggerOnMatch != 1 {
+				return Result{}, fmt.Errorf("single-request duplicate message replay currently supports only trigger_on_match=1")
+			}
 		}
 	}
 	if requestID == "" {
@@ -89,12 +101,28 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 			return Result{}, err
 		}
 	}
-	if err := start("broker", "-mode=broker", "-workers="+strings.Join([]string{url("notification"), url("audit"), url("analytics")}, ","), "-queue-capacity=1024"); err != nil {
+
+	brokerArgs := []string{
+		"-mode=broker",
+		"-workers=" + strings.Join([]string{url("notification"), url("audit"), url("analytics")}, ","),
+		"-queue-capacity=1024",
+	}
+	if spec != nil && spec.Kind == fault.DuplicateMessage {
+		brokerArgs = append(brokerArgs,
+			"-collector="+url("collector"),
+			"-fault-kind="+string(spec.Kind),
+			"-fault-target="+spec.TargetService,
+			"-fault-operation="+spec.Operation,
+			"-fault-seed="+strconv.FormatInt(spec.Seed, 10),
+			"-fault-trigger="+strconv.Itoa(spec.TriggerOnMatch),
+		)
+	}
+	if err := start("broker", brokerArgs...); err != nil {
 		return Result{}, err
 	}
 
 	inventoryArgs := []string{"-mode=service", "-role=inventory", "-collector=" + url("collector")}
-	if spec != nil && spec.Kind != fault.ServiceCrash {
+	if spec != nil && (spec.Kind == fault.Latency || spec.Kind == fault.ConnectionReset) {
 		inventoryArgs = append(inventoryArgs,
 			"-fault-kind="+string(spec.Kind),
 			"-fault-target="+spec.TargetService,
@@ -147,7 +175,11 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 		return Result{}, err
 	}
 	if outcome.HTTPStatus < 400 {
-		if err := waitBrokerIdle(ctx, url("broker"), 3, 3*time.Second); err != nil {
+		minimumDeliveries := uint64(3)
+		if spec != nil && spec.Kind == fault.DuplicateMessage {
+			minimumDeliveries = 6
+		}
+		if err := waitBrokerIdle(ctx, url("broker"), minimumDeliveries, 3*time.Second); err != nil {
 			return Result{}, err
 		}
 	}
@@ -161,9 +193,15 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 
 	minimum := 14
 	if spec != nil {
-		minimum = 6
-		if spec.Kind == fault.ServiceCrash {
+		switch spec.Kind {
+		case fault.ServiceCrash:
 			minimum = 5
+		case fault.DuplicateMessage:
+			// Healthy successful path has 14 events. Duplicating the fan-out adds
+			// one extra message + span per worker (6 events) plus one injector event.
+			minimum = 21
+		default:
+			minimum = 6
 		}
 	}
 	events, err := waitEvents(ctx, url("collector"), requestID, minimum, 4*time.Second)

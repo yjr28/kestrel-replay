@@ -17,12 +17,9 @@ make vet
 make check
 make integration
 make demo
-# fast legacy in-process harness
 make demo-inprocess
 make benchmark
-# replay a previously persisted incident
 make artifact-replay ARTIFACT=.kestrel/experiments/<id>
-# guarded cleanup of stale writer state after abrupt process death
 make artifact-recover EXPERIMENT=<id> STALE_AFTER=15m
 ```
 
@@ -45,27 +42,26 @@ Do not add untestable infrastructure just to populate directories.
 Current:
 
 - normalized event validation unit tests;
-- deterministic fault-controller unit tests;
-- explicit rejection tests for fault kinds that are declared but not implemented, plus separation between service-local and orchestrator-owned fault classes;
-- causal graph and divergence unit tests, including terminal-service status changes and missing-span crash localization;
-- outcome-signature unit tests;
-- collector queue/overload and exporter tests;
+- deterministic service-local fault-controller tests;
+- ownership/validation tests separating service-local, orchestrator-owned, and broker-owned fault classes;
+- causal graph/divergence tests including missing-span crash localization;
+- external outcome-signature tests;
+- canonical async message-delivery signature tests that ignore generated IDs/timestamps while preserving publish/consume multiplicity;
+- collector queue/overload tests;
 - exporter transient-delivery retry and deterministic telemetry-drain coverage;
 - W3C trace-context tests;
-- real TCP connection-reset injection and transport-classification tests;
-- refused-connection transport classification for a killed dependency;
-- immutable experiment artifact integrity/schema/immutability tests;
-- guarded stale-writer recovery tests covering dead-owner cleanup, live-owner refusal, young-reservation refusal, and committed-artifact preservation;
-- multi-process latency, TCP connection-reset, and pre-request inventory service-crash artifact replay tests across 10 service processes + broker + collector;
-- service-crash evidence assertions proving an explicit injector record exists while the killed inventory process emits no request span;
-- persisted crash localization asserting the missing healthy `inventory/check` span is found using the recorded terminal service rather than the injector event.
+- real TCP reset and refused-connection classification tests;
+- broker unit tests proving duplicate delivery preserves message identity and refuses to inject until collector evidence is accepted;
+- immutable artifact integrity/schema/immutability and guarded stale-writer recovery tests;
+- multi-process artifact replay for latency, TCP reset, pre-request inventory crash, and broker duplicate-message delivery across 10 service processes + broker + collector;
+- duplicate integration assertions requiring one `orders.completed` publish, two consumes at each worker, six graph message edges, and separate-process async-signature replay parity.
 
 Planned:
 
 - property tests for graph invariants and event normalization;
-- broker/message-order fault tests;
+- delayed/reordered broker fault tests and eventual Level-C ordering semantics;
 - service restart and explicit RPC-timeout replay tests;
-- retention and schema-migration tests for persisted experiments;
+- retention/schema-migration tests for persisted experiments;
 - eBPF integration tests on Linux CI runners;
 - seeded corpus replay regression suite.
 
@@ -73,7 +69,7 @@ Planned:
 
 GitHub Actions runs tests and `go vet` on pushes and pull requests. Linux-specific eBPF CI will be added only when the agent exists and its privilege/runtime requirements are explicit.
 
-The multi-process harness treats evidence completeness as a correctness property. Services expose a telemetry drain barrier that waits for active request handlers and pending exporter delivery; orchestration invokes that barrier before reading experiment evidence. Tests should not compensate for missing telemetry by lowering event-count expectations or adding arbitrary sleeps.
+The multi-process harness treats evidence completeness as a correctness property. Services expose a telemetry drain barrier that waits for active handlers and pending exporter delivery; orchestration invokes it before reading experiment evidence. Broker-owned duplicate injection separately requires collector acceptance of the injector event before enqueueing the faulty delivery. Tests should not compensate for missing telemetry by lowering evidence-count expectations or adding arbitrary sleeps.
 
 ## Repository policy for measured claims
 

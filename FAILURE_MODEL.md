@@ -29,70 +29,49 @@ A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually
 | service crash | implemented for orchestrated pre-request `inventory` crash | Level B failure-schedule replay |
 | service restart | planned; rejected by current validator | Level B |
 | RPC timeout | planned; rejected by current validator | Level B |
-| duplicate message | planned; rejected by current validator | Level B/C |
+| duplicate message | implemented for broker `orders.completed` fan-out | Level B schedule replay with async-delivery evidence parity |
 | delayed message | planned; rejected by current validator | Level B/C |
 | reordered async messages | planned; rejected by current validator | Level C where broker/test harness permits ordering control |
 
 ## Implemented latency fault
 
-`internal/fault` defines a fault spec with:
-
-- `kind`;
-- `target_service`;
-- optional `operation`;
-- `trigger_on_match`;
-- base delay;
-- optional jitter fraction;
-- seed.
-
-A controller counts matching execution points and fires on the configured match. Jitter, when enabled, is generated from the recorded seed so the chosen injected delay is repeatable.
+`internal/fault` defines a fault spec with kind, target service/operation, trigger position, delay/jitter parameters where applicable, and seed. A controller counts matching execution points and fires on the configured match. Jitter, when enabled, is generated from the recorded seed so Kestrel's own randomized choice is repeatable.
 
 The latency integration case injects delay into `inventory/check`; the order service has a tighter dependency timeout than the upstream proxy layers, preserving the observed terminal cause as `inventory_timeout` with HTTP 504.
 
 ## Implemented connection-reset fault
 
-The connection-reset case targets the same `inventory/check` boundary but does not simulate failure with an HTTP error. The inventory service hijacks the accepted HTTP connection, applies TCP linger zero when the underlying connection is TCP, and closes it so the Linux integration environment observes a real reset at the caller.
+The connection-reset case targets `inventory/check` but does not simulate failure with an HTTP error. The inventory service hijacks the accepted HTTP connection, applies TCP linger zero when the underlying connection is TCP, and closes it so the Linux integration environment observes a real reset at the caller.
 
-The application instrumentation records two pieces of evidence:
-
-- an explicit fault-injector event with `fault.kind=connection_reset`;
-- the affected inventory span with `status=error`, `http.status_code=0`, and `transport.error=connection_reset`.
-
-The order client classifies an actual `ECONNRESET` separately from deadline expiry. The tested outcome signature is HTTP 502, terminal service `inventory`, error code `inventory_connection_reset`. Other unrecognized transport errors remain `inventory_transport_error`; they are not relabeled as resets just because a reset fault was requested.
-
-The multi-process integration test persists this failure, reloads the artifact, launches a separate replay process with the recorded fault schedule, and requires the replayed outcome signature to match.
+Kestrel records an explicit reset fault event plus an errored inventory span with `transport.error=connection_reset`. The tested outcome is HTTP 502, terminal service `inventory`, error code `inventory_connection_reset`. A separate artifact-replay process must reproduce the same semantic outcome.
 
 ## Implemented service-crash fault
 
-The current service-crash slice is deliberately narrower than a general crash scheduler. It is owned by the multi-process orchestrator, not by the in-service fault controller.
+The current service-crash slice is orchestrator-owned rather than service-local. The topology starts healthy, Kestrel records the pre-request crash schedule, kills the real inventory OS process, confirms its health endpoint is unavailable, and only then issues the workload.
 
-For the supported case:
+The tested Unix/Linux loopback environment produces a real refused TCP connection. The caller classifies it as HTTP 502, terminal service `inventory`, error code `inventory_connection_refused`. There is no `inventory/check` request span because the process was already dead; localization can report that healthy span as `missing_span` using the external terminal-service outcome as an anchor without reading the injector event for the answer.
 
-1. the complete topology starts and `inventory` first passes its health check;
-2. Kestrel records a failure-injector event with `fault.kind=service_crash`, `target.service=inventory`, `schedule.phase=before_request`, the seed, trigger, and workload correlation ID;
-3. the orchestrator kills the real inventory OS process;
-4. it confirms the inventory health endpoint is unavailable;
-5. only then is the workload issued through the gateway.
+Current crash scope is explicit: `inventory`, before request, `trigger_on_match=1`, Unix-oriented child-process lifecycle. General mid-request crashes, restart sequences, and Kubernetes lifecycle replay are not claimed.
 
-Because the process is already dead when `order` connects, the tested loopback/Unix environment produces a real refused TCP connection. The caller classifies `ECONNREFUSED` as HTTP 502, terminal service `inventory`, error code `inventory_connection_refused`.
+## Implemented duplicate-message fault
 
-There is intentionally no `inventory/check` request span in the failing run: the request never entered the killed service. Crash localization therefore compares healthy and failing application evidence using the externally observed terminal service as an anchor; a healthy `inventory/check` span that is absent from the failing run is reported as `missing_span`. The localization path does not read the injector event to obtain the answer.
+The duplicate-message slice is broker-owned. Its current supported target is `broker/orders.completed`; the single-request integration harness supports `trigger_on_match=1`.
 
-The crash artifact is then loaded by a separate replay process. A fresh topology is started, the same pre-request process-kill schedule is applied, and replay succeeds only if the semantic outcome signature matches.
+When the trigger fires:
 
-Current limitations are explicit:
+1. the broker synchronously records a fault event in the collector containing the request/trace correlation, original `message.id`, seed, trigger, target operation, and `duplicate.extra_copies=1`;
+2. only after the collector accepts that evidence does the broker enqueue the faulty delivery;
+3. the original envelope is delivered twice to each of notification, audit, and analytics while preserving the same message ID.
 
-- only target service `inventory` is supported;
-- only a pre-request crash with `trigger_on_match=1` is supported;
-- the in-service fault controller rejects service-crash specs because process lifecycle is orchestrator-owned;
-- the integration proof is Unix-oriented because it uses real child-process kill/lifecycle behavior;
-- this is not yet crash/restart sequencing, arbitrary mid-request process death, or Kubernetes pod termination replay.
+The synchronous create-order request still returns HTTP 201. Therefore HTTP outcome equality alone is insufficient to claim replay. Kestrel derives a canonical message-delivery signature for `orders.completed` that ignores generated trace/span/message identities and timestamps but counts application publishes plus consumes per service.
+
+The tested duplicate signature is one publish and two consumes at each of notification, audit, and analytics. The persisted causal graph contains six message edges from the one publisher to six consume events. Artifact replay succeeds only when both the external outcome and canonical async-delivery signature match the recorded incident.
+
+The in-service controller rejects duplicate-message specs because the broker owns async delivery scheduling. Delayed/reordered delivery is not yet implemented or implied by this slice.
 
 ## What the seed does not guarantee
 
-A seed does not make Linux scheduling, TCP behavior, GC, or arbitrary concurrency deterministic. It guarantees that Kestrel's own randomized injector decisions and trigger schedule can be reproduced. Replay success is determined by the resulting outcome signature, not by assuming bit-for-bit identical execution.
-
-For connection reset and service crash, the current proven environment is the Unix/Linux process topology used by CI and the demo architecture. This is not a claim that every operating system, proxy, service mesh, or Kubernetes network path will surface transport errors identically.
+A seed does not make Linux scheduling, TCP behavior, GC, or arbitrary concurrency deterministic. It guarantees that Kestrel's own randomized injector decisions and trigger schedule can be reproduced. Replay success is determined by supported semantic evidence, not by assuming bit-for-bit identical execution.
 
 ## Corpus policy
 
@@ -100,7 +79,7 @@ A future incident corpus should use immutable experiment manifests. A case is on
 
 1. the original failure was actually observed;
 2. the replay was executed from its recorded manifest;
-3. the replay result was compared by the documented outcome-signature rules;
+3. the replay result was compared by the documented outcome/evidence-signature rules;
 4. pass/fail output is retained as an artifact.
 
 Unsupported or flaky cases remain in the corpus with their limitations; they are not silently removed from the denominator after the fact.

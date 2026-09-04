@@ -29,7 +29,9 @@ flowchart TB
     B --> AU[audit]
     B --> AN[analytics]
 
-    F[Seeded fault controller / orchestrator] --> I
+    SF[service fault controller] --> I
+    OF[orchestrator crash schedule] --> I
+    BF[broker duplicate schedule] --> B
 
     G -. normalized events .-> C[collector process]
     A -. normalized events .-> C
@@ -41,37 +43,35 @@ flowchart TB
     N -. normalized events .-> C
     AU -. normalized events .-> C
     AN -. normalized events .-> C
-    F -. fault evidence .-> C
+    SF -. fault evidence .-> C
+    OF -. fault evidence .-> C
+    BF -. fault evidence .-> C
 
     C --> CG[Causal graph builder]
     CG --> D[Divergence detector]
-    C --> R[Replay outcome signature]
+    C --> R[Replay outcome + async signature]
 ```
 
 ### Current boundaries
 
 - Each application service, broker, and collector is a separate OS process, but the demo still runs on one host over loopback TCP.
 - Trace propagation uses standards-compliant W3C `traceparent`, while span/event emission is a lightweight Kestrel implementation rather than the OpenTelemetry SDK.
-- The broker is a real separate network process with a bounded queue, but it is not durable and does not yet support controlled reordering/duplication faults.
-- Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters instead of blocking indefinitely. Before evidence is judged, the multi-process harness uses an explicit active-handler/exporter drain barrier so request-local telemetry has reached the collector rather than relying on sleep timing.
+- The broker is a real separate network process with a bounded queue. It now supports one broker-owned fault: duplicating the `orders.completed` fan-out after synchronously recording injector evidence. It is not durable and does not yet support delayed/reordered delivery.
+- Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters. Before evidence is judged, the multi-process harness uses an explicit active-handler/exporter drain barrier rather than sleep timing.
 - The live collector store is in-memory, but completed experiments are committed to immutable versioned artifact directories with NDJSON events plus manifest/event SHA-256 checks. PostgreSQL indexing is not implemented yet.
-- Three fault slices are currently implemented and replay-tested: latency, TCP connection reset, and an orchestrator-owned pre-request inventory service crash. Latency/reset execute inside the service fault controller; service crash is deliberately process-lifecycle logic in the orchestrator and is rejected by the in-service controller.
+- Four fault slices are replay-tested: service-local latency and TCP reset, orchestrator-owned pre-request inventory crash, and broker-owned duplicate `orders.completed` delivery.
 - No kernel/eBPF evidence is collected yet.
-- Level-B replay is proven by the integration corpus for the tested latency/timeout, TCP-reset, and pre-request inventory-crash paths. The default terminal demo currently presents the latency path.
+- Level-B schedule replay is proven by the integration corpus for those four slices. Controlled message ordering (Level C) is not implemented.
 
 These are measured implementation boundaries, not claims about the target architecture.
 
-### Collector observability
+### Evidence-drain and broker observability
 
-The standalone collector exposes:
+The standalone collector exposes accepted/stored/invalid/dropped counts, queue depth/capacity, cumulative storage latency, overload behavior, and health/stats/metrics/event endpoints.
 
-- accepted/stored/invalid/dropped event counts;
-- queue depth and capacity;
-- cumulative storage latency;
-- HTTP `429` overload behavior with `Retry-After`;
-- `/healthz`, `/v1/stats`, `/metrics`, and trace-filtered event retrieval.
+Service-side exporters track sent/dropped/error/queued/pending state and retry transient collector delivery within bounds. Services expose a non-business telemetry flush barrier used by the integration harness.
 
-The service-side exporter separately tracks sent, dropped, error, queued, and pending delivery state. Transient collector-delivery failures receive bounded retries, and services expose a non-business telemetry flush barrier used by the integration harness. The broker reports queued/in-flight/delivered/error counts. Completed experiment artifacts form the restart boundary for graph/replay analysis; see `docs/EXPERIMENT_FORMAT.md`.
+The broker reports queued/in-flight/delivered/error counts plus injected/duplicated-envelope counts. For duplicate injection, collector acceptance of the fault event is a precondition for enqueueing the faulty delivery. This prevents Kestrel from creating an unrecorded duplicate incident.
 
 ## Target architecture
 
@@ -124,7 +124,7 @@ flowchart LR
 **Replay engine**
 - consume recorded inputs, timing/order metadata, and fault schedules;
 - declare the exact supported replay level for each incident;
-- emit a machine-comparable outcome signature.
+- emit machine-comparable external and fault-specific evidence signatures.
 
 ## Normalized event model
 
@@ -145,31 +145,27 @@ Current graph edges are created only for explicit evidence:
 
 - known parent span ID;
 - exact message ID publish/consume match;
-- explicit fault target followed by an affected-service span.
+- explicit fault target followed by an affected-service span when such a span exists.
 
-A pre-request service crash is an important boundary case: the killed service has no request span, so there is no affected-service node to attach a fault edge to. The fault event remains recorded evidence, but graph construction does not invent a synthetic request span simply to create an edge.
+Duplicate delivery preserves the original message ID, so one publisher can have multiple explicit consume edges; the tested duplicate incident produces six message edges. A pre-request crash has no inventory request span, so the graph does not invent a synthetic node merely to create a fault edge.
 
 Important limitations:
 
 - clocks can differ once services become separate processes/hosts;
 - temporal order alone is not sufficient to prove causality;
 - TCP retransmission or scheduling events may correlate with a trace without proving application-level causation;
-- fan-out messages can produce one-to-many message edges;
+- fan-out/duplicate messages naturally produce one-to-many edges;
 - missing telemetry can create false graph gaps.
 
 Future inferred edges must carry confidence/provenance rather than being mixed silently with explicit edges.
 
-## Divergence algorithm: current version
+## Replay comparison and divergence
 
-The current implementation compares healthy and failing application spans by `(service, operation)` while deliberately ignoring explicit injector events during localization.
+External replay comparison uses classification, HTTP status, terminal service, error code, and causal path. Kestrel additionally computes a canonical `orders.completed` message-delivery signature containing publish count and consume counts per service while excluding generated IDs/timestamps. This is required because duplicate-message incidents preserve a successful HTTP 201 outcome.
 
-1. It first searches for large local duration differences above a configured threshold and ranks the strongest delta, because propagated parent errors are often consequences rather than the first useful local evidence.
-2. When an externally observed outcome identifies a terminal service, the detector can use that service as an application-evidence anchor. If the healthy terminal-service span is absent from the failing run, it reports `missing_span`; if the span exists but changes status, it reports `terminal_status_change`.
-3. It then falls back to generic unexpected-span, status-change, or missing-span topology differences.
+The divergence implementation compares healthy and failing application spans while deliberately ignoring injector events during localization. It first checks local latency deltas; when an external outcome identifies a terminal service it can distinguish a terminal status change from a missing healthy span; then it falls back to generic topology/status differences.
 
-The terminal-service anchor comes from the machine-readable outcome signature, not from the fault-injector event. This allows the crash case to localize a missing `inventory/check` span without trivially copying the configured crash target.
-
-This remains an evidence heuristic, not a final root-cause algorithm. The later version should operate over graph structure, retry/message-order changes, kernel anomalies, and a healthy-run distribution rather than a single reference execution.
+This remains an evidence heuristic, not a final root-cause algorithm. Later versions should incorporate healthy-run distributions, graph diffs, retry/message-order changes, kernel anomalies, provenance/confidence, and corpus-level evaluation.
 
 ## Security boundary
 

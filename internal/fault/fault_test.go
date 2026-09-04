@@ -56,6 +56,24 @@ func TestServiceCrashSpecValidatesButInServiceControllerRejectsIt(t *testing.T) 
 	}
 }
 
+func TestDuplicateMessageSpecValidatesButInServiceControllerRejectsIt(t *testing.T) {
+	spec := Spec{Kind: DuplicateMessage, TargetService: "broker", Operation: "orders.completed", TriggerOnMatch: 1, Seed: 11}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("valid duplicate spec rejected: %v", err)
+	}
+	if _, err := NewController([]Spec{spec}); err == nil || !strings.Contains(err.Error(), "not supported by the in-service controller") {
+		t.Fatalf("expected controller rejection for broker-owned duplicate fault, got %v", err)
+	}
+	spec.Operation = ""
+	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "requires a target operation") {
+		t.Fatalf("expected missing duplicate operation rejection, got %v", err)
+	}
+	spec = Spec{Kind: DuplicateMessage, TargetService: "broker", Operation: "orders.completed", TriggerOnMatch: 1, Delay: time.Millisecond}
+	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "does not accept delay") {
+		t.Fatalf("expected duplicate delay rejection, got %v", err)
+	}
+}
+
 func TestUnimplementedFaultKindRejected(t *testing.T) {
 	spec := Spec{Kind: PacketLoss, TargetService: "inventory", TriggerOnMatch: 1, Seed: 7}
 	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "not implemented") {

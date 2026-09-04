@@ -15,14 +15,19 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/replay"
 )
 
+const replayMessageTopic = "orders.completed"
+
 type report struct {
-	ExperimentID       string                  `json:"experiment_id"`
-	RecordedEventCount int                     `json:"recorded_event_count"`
-	RecordedGraphNodes int                     `json:"recorded_graph_nodes"`
-	RecordedGraphEdges int                     `json:"recorded_graph_edges"`
-	RecordedOutcome    replay.OutcomeSignature `json:"recorded_outcome"`
-	ReplayedOutcome    replay.OutcomeSignature `json:"replayed_outcome"`
-	ReplayMatch        bool                    `json:"replay_match"`
+	ExperimentID         string                          `json:"experiment_id"`
+	RecordedEventCount   int                             `json:"recorded_event_count"`
+	RecordedGraphNodes   int                             `json:"recorded_graph_nodes"`
+	RecordedGraphEdges   int                             `json:"recorded_graph_edges"`
+	RecordedOutcome      replay.OutcomeSignature         `json:"recorded_outcome"`
+	ReplayedOutcome      replay.OutcomeSignature         `json:"replayed_outcome"`
+	RecordedMessages     replay.MessageDeliverySignature `json:"recorded_message_delivery"`
+	ReplayedMessages     replay.MessageDeliverySignature `json:"replayed_message_delivery"`
+	MessageDeliveryMatch bool                            `json:"message_delivery_match"`
+	ReplayMatch          bool                            `json:"replay_match"`
 }
 
 func main() {
@@ -51,11 +56,18 @@ func main() {
 		log.Fatalf("run replay: %v", err)
 	}
 
+	recordedMessages := replay.MessageDelivery(artifact.Events, replayMessageTopic)
+	replayedMessages := replay.MessageDelivery(result.Events, replayMessageTopic)
+	messageMatch := replay.EquivalentMessageDelivery(recordedMessages, replayedMessages)
+	outcomeMatch := replay.Equivalent(artifact.Manifest.Outcome, result.Outcome)
+
 	r := report{
 		ExperimentID: artifact.Manifest.ExperimentID, RecordedEventCount: len(artifact.Events),
 		RecordedGraphNodes: len(g.Nodes), RecordedGraphEdges: len(g.Edges),
 		RecordedOutcome: artifact.Manifest.Outcome, ReplayedOutcome: result.Outcome,
-		ReplayMatch: replay.Equivalent(artifact.Manifest.Outcome, result.Outcome),
+		RecordedMessages: recordedMessages, ReplayedMessages: replayedMessages,
+		MessageDeliveryMatch: messageMatch,
+		ReplayMatch: outcomeMatch && messageMatch,
 	}
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
@@ -65,7 +77,7 @@ func main() {
 		}
 	} else {
 		fmt.Printf("experiment=%s recorded_events=%d graph_nodes=%d graph_edges=%d\n", r.ExperimentID, r.RecordedEventCount, r.RecordedGraphNodes, r.RecordedGraphEdges)
-		fmt.Printf("recorded=%s/%s replayed=%s/%s replay_match=%t\n", r.RecordedOutcome.TerminalService, r.RecordedOutcome.ErrorCode, r.ReplayedOutcome.TerminalService, r.ReplayedOutcome.ErrorCode, r.ReplayMatch)
+		fmt.Printf("recorded=%s/%s replayed=%s/%s message_delivery_match=%t replay_match=%t\n", r.RecordedOutcome.TerminalService, r.RecordedOutcome.ErrorCode, r.ReplayedOutcome.TerminalService, r.ReplayedOutcome.ErrorCode, r.MessageDeliveryMatch, r.ReplayMatch)
 	}
 	if !r.ReplayMatch {
 		os.Exit(2)

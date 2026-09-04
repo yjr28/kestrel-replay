@@ -23,7 +23,7 @@ import (
 func main() {
 	mode := flag.String("mode", "", "node mode: collector, broker, or service")
 	listen := flag.String("listen", "127.0.0.1:0", "HTTP listen address")
-	collectorURL := flag.String("collector", "", "collector base URL (service mode)")
+	collectorURL := flag.String("collector", "", "collector base URL (service/broker fault mode)")
 	role := flag.String("role", "", "service role")
 	nextURL := flag.String("next", "", "next synchronous service URL")
 	inventoryURL := flag.String("inventory", "", "inventory service URL")
@@ -40,6 +40,14 @@ func main() {
 	faultTrigger := flag.Int("fault-trigger", 1, "matching occurrence on which to inject")
 	flag.Parse()
 
+	var configuredFault *fault.Spec
+	if *faultKind != "" {
+		configuredFault = &fault.Spec{
+			Kind: fault.Kind(*faultKind), TargetService: *faultTarget, Operation: *faultOperation,
+			TriggerOnMatch: *faultTrigger, Delay: *faultDelay, Seed: *faultSeed,
+		}
+	}
+
 	var handler http.Handler
 	var cleanup func(context.Context) error
 
@@ -53,7 +61,10 @@ func main() {
 		if len(urls) == 0 {
 			log.Fatal("broker mode requires -workers")
 		}
-		b := broker.New(urls, *queueCapacity)
+		b, err := broker.NewWithFault(urls, *queueCapacity, *collectorURL, configuredFault)
+		if err != nil {
+			log.Fatal(err)
+		}
 		handler = b.Handler()
 		cleanup = b.Close
 	case "service":
@@ -62,8 +73,8 @@ func main() {
 		}
 		exporter := telemetry.NewExporter(*collectorURL, *queueCapacity)
 		specs := []fault.Spec(nil)
-		if *faultKind != "" {
-			specs = append(specs, fault.Spec{Kind: fault.Kind(*faultKind), TargetService: *faultTarget, Operation: *faultOperation, TriggerOnMatch: *faultTrigger, Delay: *faultDelay, Seed: *faultSeed})
+		if configuredFault != nil {
+			specs = append(specs, *configuredFault)
 		}
 		app, err := serviceapp.New(serviceapp.Config{Role: *role, NextURL: *nextURL, InventoryURL: *inventoryURL, PricingURL: *pricingURL, PaymentURL: *paymentURL, BrokerURL: *brokerURL, Faults: specs}, exporter)
 		if err != nil {
