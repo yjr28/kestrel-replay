@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,7 +32,10 @@ type child struct {
 	name string
 	cmd  *exec.Cmd
 	logs bytes.Buffer
-	done chan error
+	done chan struct{}
+
+	mu      sync.RWMutex
+	waitErr error
 }
 
 // RunScenario launches a complete Kestrel demo topology as separate OS
@@ -89,7 +93,7 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 		}
 		children = append(children, c)
 		childrenByName[name] = c
-		if err := waitHealth(ctx, url(name)+"/healthz", 4*time.Second); err != nil {
+		if err := waitHealth(ctx, c, url(name)+"/healthz", 4*time.Second); err != nil {
 			return fmt.Errorf("%s failed health check: %w\n%s", name, err, c.logs.String())
 		}
 		return nil
@@ -302,19 +306,36 @@ func allocateAddress() (string, error) {
 
 func startChild(ctx context.Context, name, binary string, args []string) (*child, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
-	c := &child{name: name, cmd: cmd, done: make(chan error, 1)}
+	c := &child{name: name, cmd: cmd, done: make(chan struct{})}
 	cmd.Stdout = &c.logs
 	cmd.Stderr = &c.logs
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", name, err)
 	}
-	go func() { c.done <- cmd.Wait() }()
+	go func() {
+		err := cmd.Wait()
+		c.mu.Lock()
+		c.waitErr = err
+		c.mu.Unlock()
+		close(c.done)
+	}()
 	return c, nil
+}
+
+func (c *child) exitError() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.waitErr
 }
 
 func (c *child) crash() error {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return fmt.Errorf("process is not running")
+	}
+	select {
+	case <-c.done:
+		return fmt.Errorf("process already exited: %v", c.exitError())
+	default:
 	}
 	return c.cmd.Process.Kill()
 }
@@ -322,6 +343,11 @@ func (c *child) crash() error {
 func (c *child) stop() {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return
+	}
+	select {
+	case <-c.done:
+		return
+	default:
 	}
 	_ = c.cmd.Process.Signal(syscall.SIGTERM)
 	select {
@@ -332,18 +358,28 @@ func (c *child) stop() {
 	}
 }
 
-func waitHealth(ctx context.Context, endpoint string, timeout time.Duration) error {
+func waitHealth(ctx context.Context, c *child, endpoint string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 200 * time.Millisecond}
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		select {
+		case <-c.done:
+			return fmt.Errorf("child exited before health check completed: %v", c.exitError())
+		default:
+		}
 		resp, err := client.Get(endpoint)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode/100 == 2 {
-				return nil
+				select {
+				case <-c.done:
+					return fmt.Errorf("child exited during health check: %v", c.exitError())
+				default:
+					return nil
+				}
 			}
 		}
 		time.Sleep(20 * time.Millisecond)
