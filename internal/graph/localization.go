@@ -138,7 +138,7 @@ func TopKContains(candidates []LocalizationCandidate, service, operation string,
 func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 	spans := make(map[divergenceKey]model.Event)
 	for _, e := range model.Sorted(events) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" {
 			continue
 		}
 		spans[divergenceKey{service: e.Service, operation: e.Operation}] = e
