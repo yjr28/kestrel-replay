@@ -28,8 +28,8 @@ type LocalizationCandidate struct {
 // anchor and only boosts candidates for that service.
 func RankDivergences(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) []LocalizationCandidate {
 	terminalService = strings.TrimSpace(terminalService)
-	healthySpans := applicationSpanIndex(healthy)
-	failingSpans := applicationSpanIndex(failing)
+	healthySpans, healthyAmbiguous := applicationSpanIndexWithAmbiguity(healthy)
+	failingSpans, failingAmbiguous := applicationSpanIndexWithAmbiguity(failing)
 	keys := make([]divergenceKey, 0, len(healthySpans)+len(failingSpans))
 	seen := make(map[divergenceKey]struct{}, len(healthySpans)+len(failingSpans))
 	for key := range healthySpans {
@@ -51,6 +51,12 @@ func RankDivergences(healthy, failing []model.Event, latencyThreshold time.Durat
 
 	var candidates []LocalizationCandidate
 	for _, key := range keys {
+		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
+			continue
+		}
+		if _, ambiguous := failingAmbiguous[key]; ambiguous {
+			continue
+		}
 		h, hok := healthySpans[key]
 		f, fok := failingSpans[key]
 		switch {
@@ -136,14 +142,33 @@ func TopKContains(candidates []LocalizationCandidate, service, operation string,
 }
 
 func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
+	spans, _ := applicationSpanIndexWithAmbiguity(events)
+	return spans
+}
+
+// applicationSpanIndexWithAmbiguity returns only application span keys backed
+// by exactly one identified event. Duplicate service/operation keys are kept
+// separately so callers can avoid treating an arbitrary retry/duplicate as
+// authoritative evidence while retry semantics remain unmodeled.
+func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
 	spans := make(map[divergenceKey]model.Event)
+	ambiguous := make(map[divergenceKey]struct{})
 	for _, e := range model.Sorted(events) {
 		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" {
 			continue
 		}
-		spans[divergenceKey{service: e.Service, operation: e.Operation}] = e
+		key := divergenceKey{service: e.Service, operation: e.Operation}
+		if _, alreadyAmbiguous := ambiguous[key]; alreadyAmbiguous {
+			continue
+		}
+		if _, exists := spans[key]; exists {
+			delete(spans, key)
+			ambiguous[key] = struct{}{}
+			continue
+		}
+		spans[key] = e
 	}
-	return spans
+	return spans, ambiguous
 }
 
 func scoreCandidate(c *LocalizationCandidate, terminalService string, latencyThreshold time.Duration) {

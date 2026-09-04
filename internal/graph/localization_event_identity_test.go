@@ -34,3 +34,34 @@ func TestRankDivergencesRequiresEventIdentityForSpanEvidence(t *testing.T) {
 		t.Fatalf("id-less span must not establish unexpected-span evidence: %#v", unexpectedOnly)
 	}
 }
+
+func TestRankDivergencesExcludesAmbiguousDuplicateSpanEvidence(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	healthy := []model.Event{{
+		ID: "healthy-orders", Source: model.SourceApplication, Kind: model.KindSpan,
+		Service: "orders", Operation: "POST /orders", Status: "ok", Timestamp: now,
+	}}
+	failing := []model.Event{
+		{
+			ID: "failing-orders-1", Source: model.SourceApplication, Kind: model.KindSpan,
+			Service: "orders", Operation: "POST /orders", Status: "error", Timestamp: now.Add(time.Second),
+		},
+		{
+			ID: "failing-orders-2", Source: model.SourceApplication, Kind: model.KindSpan,
+			Service: "orders", Operation: "POST /orders", Status: "ok", Timestamp: now.Add(2 * time.Second),
+		},
+	}
+
+	if candidates := RankDivergences(healthy, failing, 0, "orders"); len(candidates) != 0 {
+		t.Fatalf("duplicate failing spans must not select arbitrary ranked evidence: %#v", candidates)
+	}
+
+	healthy = append(healthy, model.Event{
+		ID: "healthy-orders-2", Source: model.SourceApplication, Kind: model.KindSpan,
+		Service: "orders", Operation: "POST /orders", Status: "error", Timestamp: now.Add(3 * time.Second),
+	})
+	failing = failing[:1]
+	if candidates := RankDivergences(healthy, failing, 0, "orders"); len(candidates) != 0 {
+		t.Fatalf("duplicate healthy spans must not make a singleton failing span look unexpected or paired: %#v", candidates)
+	}
+}
