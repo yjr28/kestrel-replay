@@ -20,7 +20,10 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/replay"
 )
 
-const reportSchemaVersion = 2
+const (
+	reportSchemaVersion = 3
+	healthyProfileRuns  = 3
+)
 
 type artifactReplayReport struct {
 	RecordedOutcome      replay.OutcomeSignature         `json:"recorded_outcome"`
@@ -29,6 +32,13 @@ type artifactReplayReport struct {
 	ReplayedMessages     replay.MessageDeliverySignature `json:"replayed_message_delivery"`
 	MessageDeliveryMatch bool                            `json:"message_delivery_match"`
 	ReplayMatch          bool                            `json:"replay_match"`
+}
+
+type healthyBaselineReport struct {
+	Index        int    `json:"index"`
+	ArtifactDir  string `json:"artifact_dir"`
+	EventCount   int    `json:"event_count"`
+	EventsSHA256 string `json:"events_sha256"`
 }
 
 type caseReport struct {
@@ -54,24 +64,24 @@ type caseReport struct {
 }
 
 type corpusReport struct {
-	SchemaVersion             int          `json:"schema_version"`
-	CorpusVersion             string       `json:"corpus_version"`
-	RunID                     string       `json:"run_id"`
-	CreatedAt                 time.Time    `json:"created_at"`
-	CompletedAt               time.Time    `json:"completed_at"`
-	CaseCount                 int          `json:"case_count"`
-	PassedCount               int          `json:"passed_count"`
-	FailedCount               int          `json:"failed_count"`
-	ReplayPassedCount         int          `json:"replay_passed_count"`
-	ReplayFailedCount         int          `json:"replay_failed_count"`
-	LocalizationEligibleCount int          `json:"localization_eligible_count"`
-	LocalizationTop1Count     int          `json:"localization_top1_count"`
-	LocalizationTop3Count     int          `json:"localization_top3_count"`
-	HealthyArtifactDir        string       `json:"healthy_artifact_dir"`
-	HealthyEventCount         int          `json:"healthy_event_count"`
-	HealthyEventsSHA256       string       `json:"healthy_events_sha256"`
-	ReportPath                string       `json:"report_path"`
-	Cases                     []caseReport `json:"cases"`
+	SchemaVersion             int                     `json:"schema_version"`
+	CorpusVersion             string                  `json:"corpus_version"`
+	RunID                     string                  `json:"run_id"`
+	CreatedAt                 time.Time               `json:"created_at"`
+	CompletedAt               time.Time               `json:"completed_at"`
+	CaseCount                 int                     `json:"case_count"`
+	PassedCount               int                     `json:"passed_count"`
+	FailedCount               int                     `json:"failed_count"`
+	ReplayPassedCount         int                     `json:"replay_passed_count"`
+	ReplayFailedCount         int                     `json:"replay_failed_count"`
+	LocalizationEligibleCount int                     `json:"localization_eligible_count"`
+	LocalizationTop1Count     int                     `json:"localization_top1_count"`
+	LocalizationTop3Count     int                     `json:"localization_top3_count"`
+	HealthyProfileRunCount    int                     `json:"healthy_profile_run_count"`
+	HealthyBaselines          []healthyBaselineReport `json:"healthy_baselines"`
+	HealthyProfile            []graph.SpanBaseline    `json:"healthy_profile"`
+	ReportPath                string                  `json:"report_path"`
+	Cases                     []caseReport            `json:"cases"`
 }
 
 func main() {
@@ -97,25 +107,33 @@ func main() {
 	}
 	reportPath := filepath.Join(runDir, "report.json")
 
-	healthyArtifactDir, healthyArtifact, err := recordHealthyBaseline(*node, artifactRoot, runID)
+	healthyReports, healthyArtifacts, err := recordHealthyBaselines(*node, artifactRoot, runID, healthyProfileRuns)
 	if err != nil {
-		log.Fatalf("record healthy baseline: %v", err)
+		log.Fatalf("record healthy baselines: %v", err)
+	}
+	healthyRuns := make([][]model.Event, 0, len(healthyArtifacts))
+	for _, artifact := range healthyArtifacts {
+		healthyRuns = append(healthyRuns, artifact.Events)
+	}
+	profile, err := graph.BuildHealthyProfile(healthyRuns)
+	if err != nil {
+		log.Fatalf("build healthy profile: %v", err)
 	}
 
 	report := corpusReport{
-		SchemaVersion:       reportSchemaVersion,
-		CorpusVersion:       corpus.Version,
-		RunID:               runID,
-		CreatedAt:           started,
-		CaseCount:           len(corpus.Cases()),
-		HealthyArtifactDir:  healthyArtifactDir,
-		HealthyEventCount:   len(healthyArtifact.Events),
-		HealthyEventsSHA256: healthyArtifact.Manifest.EventsSHA256,
-		ReportPath:          reportPath,
+		SchemaVersion:          reportSchemaVersion,
+		CorpusVersion:          corpus.Version,
+		RunID:                  runID,
+		CreatedAt:              started,
+		CaseCount:              len(corpus.Cases()),
+		HealthyProfileRunCount: profile.RunCount,
+		HealthyBaselines:       healthyReports,
+		HealthyProfile:         profile.Baselines(),
+		ReportPath:             reportPath,
 	}
 
 	for _, c := range corpus.Cases() {
-		cr := runCase(*node, *replayBin, artifactRoot, runID, healthyArtifact.Events, c)
+		cr := runCase(*node, *replayBin, artifactRoot, runID, profile, c)
 		report.Cases = append(report.Cases, cr)
 		if cr.ReplayMatch {
 			report.ReplayPassedCount++
@@ -149,9 +167,9 @@ func main() {
 			log.Fatal(err)
 		}
 	} else {
-		fmt.Printf("corpus=%s run=%s cases=%d passed=%d failed=%d replay=%d/%d localization_top1=%d/%d localization_top3=%d/%d report=%s\n",
+		fmt.Printf("corpus=%s run=%s cases=%d passed=%d failed=%d replay=%d/%d healthy_profile_runs=%d localization_top1=%d/%d localization_top3=%d/%d report=%s\n",
 			report.CorpusVersion, report.RunID, report.CaseCount, report.PassedCount, report.FailedCount,
-			report.ReplayPassedCount, report.CaseCount,
+			report.ReplayPassedCount, report.CaseCount, report.HealthyProfileRunCount,
 			report.LocalizationTop1Count, report.LocalizationEligibleCount,
 			report.LocalizationTop3Count, report.LocalizationEligibleCount,
 			report.ReportPath,
@@ -172,39 +190,50 @@ func main() {
 	}
 }
 
-func recordHealthyBaseline(node, artifactRoot, runID string) (string, experiment.Artifact, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	result, err := orchestrator.RunScenario(ctx, node, nil, "corpus-"+runID+"-healthy")
-	cancel()
-	if err != nil {
-		return "", experiment.Artifact{}, err
+func recordHealthyBaselines(node, artifactRoot, runID string, count int) ([]healthyBaselineReport, []experiment.Artifact, error) {
+	if count < 2 {
+		return nil, nil, fmt.Errorf("healthy baseline count must be at least two")
 	}
-	if result.Outcome.Classification != "success" || result.Outcome.HTTPStatus != 201 {
-		return "", experiment.Artifact{}, fmt.Errorf("unexpected healthy outcome: %+v", result.Outcome)
+	reports := make([]healthyBaselineReport, 0, count)
+	artifacts := make([]experiment.Artifact, 0, count)
+	for i := 1; i <= count; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		requestID := fmt.Sprintf("corpus-%s-healthy-%02d", runID, i)
+		result, err := orchestrator.RunScenario(ctx, node, nil, requestID)
+		cancel()
+		if err != nil {
+			return nil, nil, fmt.Errorf("healthy run %d: %w", i, err)
+		}
+		if result.Outcome.Classification != "success" || result.Outcome.HTTPStatus != 201 {
+			return nil, nil, fmt.Errorf("healthy run %d unexpected outcome: %+v", i, result.Outcome)
+		}
+		if len(result.Events) < 14 {
+			return nil, nil, fmt.Errorf("healthy run %d captured %d events; expected at least 14", i, len(result.Events))
+		}
+		experimentID := fmt.Sprintf("%s-healthy-baseline-%02d", corpus.Version, i)
+		artifactDir, err := experiment.Save(artifactRoot, experiment.Record{
+			ExperimentID:     experimentID,
+			Workload:         corpus.Workload,
+			Topology:         corpus.Topology(),
+			ExpectedBehavior: "healthy single-create-order execution completes without injected faults",
+			ObservedBehavior: corpus.ObservedBehavior(result.Outcome, result.Events),
+			Outcome:          result.Outcome,
+			Events:           result.Events,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("healthy run %d persist artifact: %w", i, err)
+		}
+		artifact, err := experiment.Load(artifactDir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("healthy run %d reload artifact: %w", i, err)
+		}
+		reports = append(reports, healthyBaselineReport{Index: i, ArtifactDir: artifactDir, EventCount: len(artifact.Events), EventsSHA256: artifact.Manifest.EventsSHA256})
+		artifacts = append(artifacts, artifact)
 	}
-	if len(result.Events) < 14 {
-		return "", experiment.Artifact{}, fmt.Errorf("healthy baseline captured %d events; expected at least 14", len(result.Events))
-	}
-	artifactDir, err := experiment.Save(artifactRoot, experiment.Record{
-		ExperimentID:     corpus.Version + "-healthy-baseline",
-		Workload:         corpus.Workload,
-		Topology:         corpus.Topology(),
-		ExpectedBehavior: "healthy single-create-order execution completes without injected faults",
-		ObservedBehavior: corpus.ObservedBehavior(result.Outcome, result.Events),
-		Outcome:          result.Outcome,
-		Events:           result.Events,
-	})
-	if err != nil {
-		return "", experiment.Artifact{}, err
-	}
-	artifact, err := experiment.Load(artifactDir)
-	if err != nil {
-		return "", experiment.Artifact{}, err
-	}
-	return artifactDir, artifact, nil
+	return reports, artifacts, nil
 }
 
-func runCase(node, replayBin, artifactRoot, runID string, healthyEvents []model.Event, c corpus.Case) caseReport {
+func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyProfile, c corpus.Case) caseReport {
 	cr := caseReport{CaseID: c.ID, FaultKind: string(c.Fault.Kind)}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	result, err := orchestrator.RunScenario(ctx, node, &c.Fault, "corpus-"+runID+"-"+c.ID)
@@ -250,7 +279,7 @@ func runCase(node, replayBin, artifactRoot, runID string, healthyEvents []model.
 	if truth, ok := corpus.ExpectedLocalization(c); ok {
 		cr.LocalizationEligible = true
 		cr.ExpectedLocalization = &truth
-		candidates := graph.RankDivergences(healthyEvents, artifact.Events, corpus.LocalizationLatencyThreshold, artifact.Manifest.Outcome.TerminalService)
+		candidates := graph.RankDivergencesAgainstProfile(profile, artifact.Events, corpus.LocalizationLatencyThreshold, artifact.Manifest.Outcome.TerminalService)
 		cr.LocalizationCandidates = firstCandidates(candidates, 5)
 		cr.LocalizationTop1 = graph.TopKContains(candidates, truth.Service, truth.Operation, 1)
 		cr.LocalizationTop3 = graph.TopKContains(candidates, truth.Service, truth.Operation, 3)
