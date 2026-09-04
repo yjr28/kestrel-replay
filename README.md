@@ -2,7 +2,7 @@
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
-> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry SDK instrumentation, PostgreSQL persistence, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending.
+> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are now persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay.
 
 Kestrel deliberately does **not** claim that arbitrary distributed executions can be made deterministic. Replay semantics are scoped and measured per supported fault class.
 
@@ -55,7 +55,7 @@ The demo performs three executions:
 2. request with a seeded latency fault at `inventory/check`;
 3. replay with the same failure schedule.
 
-It then builds the failing causal graph, compares healthy/failing application evidence, and prints whether the replay outcome signature matches the recorded failure.
+It persists the failing execution as an immutable experiment artifact, discards the live failing result, reloads the artifact, builds the failing causal graph, compares healthy/failing application evidence, and replays from the recorded fault schedule.
 
 Example shape of the output:
 
@@ -69,6 +69,12 @@ causal graph: nodes=... edges=...
 divergence evidence: {"service":"inventory","operation":"check","reason":"latency_delta",...}
 replay outcome: inventory/inventory_timeout (...)
 replay_match=true
+```
+
+The output also prints the artifact directory and event-log SHA-256. Re-run that artifact independently with:
+
+```bash
+make artifact-replay ARTIFACT=.kestrel/experiments/<experiment-id>
 ```
 
 Exact durations and event counts are runtime measurements and are intentionally not hard-coded as benchmark claims.
@@ -86,6 +92,12 @@ The normalized event schema currently supports:
 - failure-injector metadata including fault kind, target, seed, and injected delay.
 
 The schema is intentionally source-neutral so OpenTelemetry and eBPF events can enter the same causal pipeline later.
+
+## Durable experiment artifacts
+
+Completed experiments are stored as `manifest.json` + `events.ndjson` + `checksums.json`. The manifest is schema-versioned; both manifest and event bytes are SHA-256 checked on reload; experiment IDs are path-safe and immutable through the storage API. The multi-process integration test proves that a separate replay process can reconstruct the recorded graph and reproduce the saved outcome using only the artifact path and a fresh node binary.
+
+This is not PostgreSQL yet, and the checksums provide corruption detection rather than cryptographic authenticity. See [docs/EXPERIMENT_FORMAT.md](docs/EXPERIMENT_FORMAT.md).
 
 ## Causal graph
 
@@ -111,6 +123,7 @@ make vet        # static checks
 make check      # test + vet
 make demo       # build/run the 12-process healthy/failure/replay demo
 make demo-inprocess # fast legacy in-process harness
+make artifact-replay ARTIFACT=.kestrel/experiments/<id>
 make benchmark  # development microbenchmark only
 ```
 
@@ -131,7 +144,7 @@ The first slice records identifiers and metadata only; it does not record reques
 The living implementation sequence is tracked in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). The next major engineering slices are:
 
 - OpenTelemetry-native application instrumentation (the standalone collector is already implemented);
-- durable asynchronous transport and experiment persistence;
+- PostgreSQL metadata/results indexing and explicit stale-artifact recovery;
 - Rust/eBPF network/process telemetry with a demonstrated incremental debugging benefit;
 - expanded seeded fault corpus and replay classes;
 - Docker Compose/Kubernetes deployment;
@@ -145,6 +158,7 @@ The living implementation sequence is tracked in [docs/IMPLEMENTATION_PLAN.md](d
 - [BENCHMARKS.md](BENCHMARKS.md)
 - [DEVELOPMENT.md](DEVELOPMENT.md)
 - [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
+- [docs/EXPERIMENT_FORMAT.md](docs/EXPERIMENT_FORMAT.md)
 
 ## Resume gate
 

@@ -63,14 +63,28 @@ Partial exit gate achieved: `make demo` now runs the multi-process topology and 
 
 ## Milestone 3 — experiment persistence
 
-- versioned experiment manifest;
-- PostgreSQL metadata/results schema;
-- choose and justify high-volume event storage format;
-- transaction/integrity model;
-- retention/redaction configuration;
-- crash/restart tests.
+**Status: core restart/replay gate complete; indexing and crash recovery remain**
 
-Exit gate: an experiment can be stopped, loaded from storage, graphed, and replayed without hidden in-memory state.
+Completed in phase 3A/3B:
+
+- versioned immutable experiment manifest;
+- NDJSON event log chosen as the initial append-friendly portable event format;
+- separate checksum metadata with SHA-256 verification of manifest and event bytes;
+- path-safe experiment identifiers and same-ID writer exclusion;
+- atomic temp-directory → committed-directory publication;
+- strict reload validation for schema, checksums, and event contents;
+- default demo persists the failing run before graph/replay analysis;
+- standalone artifact-replay CLI consumes only a persisted artifact plus a fresh node binary;
+- integration test proves a persisted multiprocess failure can be reloaded, graphed, and replayed by a separate process with no hidden failing-run memory.
+
+Still required:
+
+- PostgreSQL metadata/results index (artifact bytes remain the source evidence);
+- explicit retention/redaction configuration;
+- stale writer-lock/temp-directory recovery after abrupt process death;
+- migration/compatibility policy for future manifest/event schema versions.
+
+Exit gate: **achieved for the current latency-fault slice.** An experiment can be stopped, loaded from storage, graphed, and replayed without hidden in-memory state. PostgreSQL is deliberately not claimed as implemented.
 
 ## Milestone 4 — Rust/eBPF evidence
 

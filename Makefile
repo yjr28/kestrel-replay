@@ -1,7 +1,8 @@
 BIN_DIR := .kestrel/bin
 NODE_BIN := $(BIN_DIR)/kestrel-node
+ARTIFACT_REPLAY_BIN := $(BIN_DIR)/kestrel-artifact-replay
 
-.PHONY: test vet integration build-demo demo demo-inprocess benchmark check clean
+.PHONY: test vet integration build-demo demo demo-inprocess artifact-replay benchmark check clean
 
 test:
 	go test ./...
@@ -18,6 +19,9 @@ $(BIN_DIR):
 $(NODE_BIN): | $(BIN_DIR)
 	go build -o $@ ./cmd/kestrel-node
 
+$(ARTIFACT_REPLAY_BIN): | $(BIN_DIR)
+	go build -o $@ ./cmd/kestrel-artifact-replay
+
 build-demo: $(NODE_BIN)
 
 demo: build-demo
@@ -25,6 +29,10 @@ demo: build-demo
 
 demo-inprocess:
 	go run ./cmd/kestrel-demo
+
+artifact-replay: $(NODE_BIN) $(ARTIFACT_REPLAY_BIN)
+	@test -n "$(ARTIFACT)" || (echo "ARTIFACT=<experiment-directory> is required" >&2; exit 2)
+	$(ARTIFACT_REPLAY_BIN) -artifact "$(ARTIFACT)" -node $(NODE_BIN)
 
 benchmark:
 	go test -run '^$$' -bench BenchmarkHealthyVerticalSlice -benchmem ./benchmarks

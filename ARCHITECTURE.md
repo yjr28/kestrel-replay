@@ -54,7 +54,7 @@ flowchart TB
 - Trace propagation uses standards-compliant W3C `traceparent`, while span/event emission is a lightweight Kestrel implementation rather than the OpenTelemetry SDK.
 - The broker is a real separate network process with a bounded queue, but it is not durable and does not yet support controlled reordering/duplication faults.
 - Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters instead of blocking indefinitely.
-- The collector stores one experiment in memory; PostgreSQL/append-only persistence is not implemented yet.
+- The live collector store is in-memory, but completed experiments are committed to immutable versioned artifact directories with NDJSON events plus manifest/event SHA-256 checks. PostgreSQL indexing is not implemented yet.
 - No kernel/eBPF evidence is collected yet.
 - The current demo proves Level-B replay for the tested latency/timeout path only.
 
@@ -70,7 +70,7 @@ The standalone collector exposes:
 - HTTP `429` overload behavior with `Retry-After`;
 - `/healthz`, `/v1/stats`, `/metrics`, and trace-filtered event retrieval.
 
-The service-side exporter separately tracks sent, dropped, error, and queued counts. The broker reports queued/in-flight/delivered/error counts.
+The service-side exporter separately tracks sent, dropped, error, and queued counts. The broker reports queued/in-flight/delivered/error counts. Completed experiment artifacts form the restart boundary for graph/replay analysis; see `docs/EXPERIMENT_FORMAT.md`.
 
 ## Target architecture
 
@@ -136,7 +136,7 @@ Current fields:
 - `timestamp`, `status`;
 - `attributes`.
 
-The model favors a small stable envelope plus source-specific attributes over a prematurely huge schema. Schema evolution/versioning will be added before persistent storage is introduced.
+The model favors a small stable envelope plus source-specific attributes over a prematurely huge schema. The persisted experiment wrapper is versioned independently; future event-envelope changes must introduce explicit compatibility rules instead of silently changing stored semantics.
 
 ## Causality and ambiguity
 

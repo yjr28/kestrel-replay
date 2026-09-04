@@ -19,6 +19,8 @@ make demo
 # fast legacy in-process harness
 make demo-inprocess
 make benchmark
+# replay a previously persisted incident
+make artifact-replay ARTIFACT=.kestrel/experiments/<id>
 ```
 
 ## Engineering workflow
@@ -45,13 +47,14 @@ Current:
 - outcome-signature unit tests;
 - collector queue/overload and exporter tests;
 - W3C trace-context tests;
-- multi-process healthy → injected failure → replay integration test across 10 service processes + broker + collector.
+- immutable experiment artifact integrity/schema/immutability tests;
+- multi-process healthy → persisted failure → separate-process artifact replay integration test across 10 service processes + broker + collector.
 
 Planned:
 
 - property tests for graph invariants and event normalization;
 - broker/message-order fault tests;
-- persistence crash/recovery tests;
+- abrupt-crash stale-lock/temp-directory recovery tests;
 - eBPF integration tests on Linux CI runners;
 - seeded corpus replay regression suite.
 
