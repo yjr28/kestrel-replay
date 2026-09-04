@@ -196,7 +196,7 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
 	for _, event := range model.Sorted(events) {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.ID == "" {
 			continue
 		}
 		topic := event.Attributes["topic"]
