@@ -28,29 +28,38 @@ Delivered:
 - unit tests, `go vet`, and CI;
 - architecture/failure/replay/benchmark/development docs.
 
-Known limitations:
+Limitations at the end of Milestone 1 (some have since been removed in Milestone 2):
 
-- one process owns all logical services;
+- one process owned all logical services;
 - custom tracing headers instead of OpenTelemetry;
 - in-memory events only;
 - in-memory asynchronous transport;
-- only latency injection is executed end-to-end;
+- only latency injection executed end-to-end;
 - no kernel telemetry.
 
 ## Milestone 2 — real application telemetry + collector
 
-**Next**
+**Status: in progress**
 
-- introduce protobuf API definitions where justified;
-- use OpenTelemetry SDKs and W3C trace context;
-- run application services as separate processes/containers;
-- standalone Kestrel collector;
-- bounded ingestion queues and explicit drop accounting;
-- collector self-metrics;
-- preserve correlation across a real asynchronous broker;
-- integration tests that assert parent/message correlations survive process boundaries.
+Completed in phase 2A/2B:
 
-Exit gate: `make demo` runs the multi-process topology and produces the same graph/replay evidence without relying on in-process recorder calls.
+- W3C `traceparent` propagation across synchronous HTTP and asynchronous broker fan-out;
+- 10 application services run as separate OS processes in the integration/demo path;
+- standalone collector process;
+- bounded collector ingestion queue with explicit HTTP 429 overload behavior and dropped/invalid counters;
+- collector self-metrics and event query endpoint;
+- bounded telemetry exporter queue with sent/dropped/error counters;
+- separate broker process with bounded queue and delivery/error stats;
+- multi-process integration test that validates healthy → failing → replay, causal graph construction, and divergence localization across fresh topologies.
+
+Still required before milestone completion:
+
+- OpenTelemetry SDK integration once the dependency is available in a buildable environment;
+- protobuf/gRPC boundaries where measurement shows they are justified;
+- containerized process topology;
+- stronger asynchronous correlation assertions and broker fault modes.
+
+Partial exit gate achieved: `make demo` now runs the multi-process topology and produces graph/replay evidence through the standalone collector. The remaining gate is replacing the current lightweight instrumentation with actual OpenTelemetry SDK instrumentation without regressing the behavior.
 
 ## Milestone 3 — experiment persistence
 

@@ -3,3 +3,5 @@
 *.prof
 coverage.out
 bin/
+
+.kestrel/

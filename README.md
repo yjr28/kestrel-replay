@@ -2,7 +2,7 @@
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
-> **Status: active engineering project, not yet resume-ready.** The repository currently contains a tested first vertical slice: a 10-service logical request graph over real local TCP sockets, an asynchronous fan-out path, a normalized event model, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry, PostgreSQL persistence, Rust/eBPF telemetry, containerized multi-process deployment, and publishable performance benchmarks are still pending.
+> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry SDK instrumentation, PostgreSQL persistence, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending.
 
 Kestrel deliberately does **not** claim that arbitrary distributed executions can be made deterministic. Replay semantics are scoped and measured per supported fault class.
 
@@ -21,24 +21,25 @@ flowchart LR
     O --> I[inventory]
     O --> P[pricing]
     O --> PAY[payment]
-    O -->|orders.completed| N[notification]
-    O -->|orders.completed| AU[audit]
-    O -->|orders.completed| AN[analytics]
+    O -->|orders.completed| B[broker]
+    B --> N[notification]
+    B --> AU[audit]
+    B --> AN[analytics]
 
     FI[fault controller] -. seeded latency .-> I
-    R[normalized recorder] --- G
-    R --- A
-    R --- AC
-    R --- O
-    R --- I
-    R --- P
-    R --- PAY
-    R --- N
-    R --- AU
-    R --- AN
+    G -. spans .-> COL[collector]
+    A -. spans .-> COL
+    AC -. spans .-> COL
+    O -. spans/events .-> COL
+    I -. spans/faults .-> COL
+    P -. spans .-> COL
+    PAY -. spans .-> COL
+    N -. spans/events .-> COL
+    AU -. spans/events .-> COL
+    AN -. spans/events .-> COL
 ```
 
-The services in this first slice are logical services backed by separate `httptest.Server` TCP listeners inside one process. That gives the core causal/replay code real HTTP boundaries while keeping the slice small enough to test rigorously. It is **not** yet the final Docker/Kubernetes multi-process topology.
+The default demo now launches each logical service as a separate OS process, plus separate broker and collector processes, over loopback TCP. An older in-process harness remains available as a fast unit-level development path via `make demo-inprocess`. The topology is not containerized yet.
 
 ## Quick start
 
@@ -59,8 +60,9 @@ It then builds the failing causal graph, compares healthy/failing application ev
 Example shape of the output:
 
 ```text
-Kestrel vertical-slice demo
-===========================
+Kestrel multi-process demo
+==========================
+topology: 10 service processes + broker + collector
 healthy outcome: success (...)
 failing outcome: inventory/inventory_timeout (...)
 causal graph: nodes=... edges=...
@@ -107,7 +109,8 @@ The outcome signature includes failure classification, HTTP status, terminal ser
 make test       # unit + end-to-end replay tests
 make vet        # static checks
 make check      # test + vet
-make demo       # healthy/failure/replay terminal demo
+make demo       # build/run the 12-process healthy/failure/replay demo
+make demo-inprocess # fast legacy in-process harness
 make benchmark  # development microbenchmark only
 ```
 
@@ -127,8 +130,8 @@ The first slice records identifiers and metadata only; it does not record reques
 
 The living implementation sequence is tracked in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). The next major engineering slices are:
 
-- OpenTelemetry-native application instrumentation and a standalone collector;
-- real asynchronous transport and experiment persistence;
+- OpenTelemetry-native application instrumentation (the standalone collector is already implemented);
+- durable asynchronous transport and experiment persistence;
 - Rust/eBPF network/process telemetry with a demonstrated incremental debugging benefit;
 - expanded seeded fault corpus and replay classes;
 - Docker Compose/Kubernetes deployment;

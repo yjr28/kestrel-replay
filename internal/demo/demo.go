@@ -16,14 +16,14 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/fault"
 	"github.com/yjr28/kestrel-replay/internal/model"
 	"github.com/yjr28/kestrel-replay/internal/replay"
+	"github.com/yjr28/kestrel-replay/internal/tracecontext"
+	"github.com/yjr28/kestrel-replay/internal/transport"
 )
 
 const (
-	traceHeader      = "X-Kestrel-Trace-ID"
-	parentSpanHeader = "X-Kestrel-Parent-Span-ID"
-	failureSvcHeader = "X-Kestrel-Failure-Service"
-	errorCodeHeader  = "X-Kestrel-Error-Code"
-	requestIDHeader  = "X-Kestrel-Request-ID"
+	failureSvcHeader = transport.FailureServiceHeader
+	errorCodeHeader  = transport.ErrorCodeHeader
+	requestIDHeader  = transport.RequestIDHeader
 )
 
 type Recorder struct {
@@ -35,8 +35,8 @@ type Recorder struct {
 	msgSeq   atomic.Uint64
 }
 
-func (r *Recorder) TraceID() string   { return fmt.Sprintf("trace-%06d", r.traceSeq.Add(1)) }
-func (r *Recorder) SpanID() string    { return fmt.Sprintf("span-%06d", r.spanSeq.Add(1)) }
+func (r *Recorder) TraceID() string   { return fmt.Sprintf("%032x", r.traceSeq.Add(1)) }
+func (r *Recorder) SpanID() string    { return fmt.Sprintf("%016x", r.spanSeq.Add(1)) }
 func (r *Recorder) MessageID() string { return fmt.Sprintf("msg-%06d", r.msgSeq.Add(1)) }
 
 func (r *Recorder) Add(e model.Event) {
@@ -113,7 +113,7 @@ func NewSystem(specs []fault.Spec) (*System, error) {
 		d := s.faults.Decide("inventory", "check")
 		if d.Inject {
 			s.recorder.Add(model.Event{
-				Source: model.SourceFault, Kind: model.KindFault, TraceID: r.Header.Get(traceHeader),
+				Source: model.SourceFault, Kind: model.KindFault, TraceID: traceIDFromRequest(r),
 				CorrelationID: r.Header.Get(requestIDHeader), Service: "inventory", Operation: "check",
 				Attributes: map[string]string{
 					"fault.kind": string(d.Spec.Kind), "target.service": d.Spec.TargetService,
@@ -136,7 +136,7 @@ func NewSystem(specs []fault.Spec) (*System, error) {
 	})
 
 	order := s.newServer("order", "create", func(w http.ResponseWriter, r *http.Request, spanID string) {
-		traceID := r.Header.Get(traceHeader)
+		traceID := traceIDFromRequest(r)
 		reqID := r.Header.Get(requestIDHeader)
 		for _, dep := range []struct{ name, url string }{{"inventory", inventory.URL}, {"pricing", pricing.URL}, {"payment", payment.URL}} {
 			status, body, hdr, err := s.callWithTimeout(r.Context(), dep.url, traceID, spanID, reqID, 30*time.Millisecond)
@@ -185,7 +185,7 @@ func NewSystem(specs []fault.Spec) (*System, error) {
 
 func (s *System) newProxyServer(service, operation, next string) *httptest.Server {
 	return s.newServer(service, operation, func(w http.ResponseWriter, r *http.Request, spanID string) {
-		status, body, hdr, err := s.call(r.Context(), next, r.Header.Get(traceHeader), spanID, r.Header.Get(requestIDHeader))
+		status, body, hdr, err := s.call(r.Context(), next, traceIDFromRequest(r), spanID, r.Header.Get(requestIDHeader))
 		if err != nil {
 			w.Header().Set(failureSvcHeader, service)
 			w.Header().Set(errorCodeHeader, service+"_downstream_timeout")
@@ -201,18 +201,17 @@ func (s *System) newProxyServer(service, operation, next string) *httptest.Serve
 func (s *System) newServer(service, operation string, fn func(http.ResponseWriter, *http.Request, string)) *httptest.Server {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now().UTC()
-		traceID := r.Header.Get(traceHeader)
+		traceID, parent := incomingTraceContext(r)
 		if traceID == "" {
 			traceID = s.recorder.TraceID()
-			r.Header.Set(traceHeader, traceID)
 		}
 		reqID := r.Header.Get(requestIDHeader)
 		if reqID == "" {
 			reqID = "req-1"
 			r.Header.Set(requestIDHeader, reqID)
 		}
-		parent := r.Header.Get(parentSpanHeader)
 		spanID := s.recorder.SpanID()
+		r.Header.Set(tracecontext.Header, tracecontext.Context{TraceID: traceID, SpanID: spanID, Flags: 1}.String())
 		sw := &statusWriter{ResponseWriter: w}
 		fn(sw, r, spanID)
 		if sw.status == 0 {
@@ -248,8 +247,7 @@ func (s *System) callWithClient(ctx context.Context, client *http.Client, url, t
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	req.Header.Set(traceHeader, traceID)
-	req.Header.Set(parentSpanHeader, parentSpanID)
+	req.Header.Set(tracecontext.Header, tracecontext.Context{TraceID: traceID, SpanID: parentSpanID, Flags: 1}.String())
 	req.Header.Set(requestIDHeader, requestID)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -261,6 +259,26 @@ func (s *System) callWithClient(ctx context.Context, client *http.Client, url, t
 		return 0, nil, resp.Header.Clone(), err
 	}
 	return resp.StatusCode, body, resp.Header.Clone(), nil
+}
+
+func incomingTraceContext(r *http.Request) (traceID, parentSpanID string) {
+	raw := r.Header.Get(tracecontext.Header)
+	if raw == "" {
+		return "", ""
+	}
+	c, err := tracecontext.Parse(raw)
+	if err != nil {
+		return "", ""
+	}
+	return c.TraceID, c.SpanID
+}
+
+func traceIDFromRequest(r *http.Request) string {
+	c, err := tracecontext.Parse(r.Header.Get(tracecontext.Header))
+	if err != nil {
+		return ""
+	}
+	return c.TraceID
 }
 
 func copyFailureHeaders(dst, src http.Header) {

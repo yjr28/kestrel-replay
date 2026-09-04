@@ -16,6 +16,8 @@ make test
 make vet
 make check
 make demo
+# fast legacy in-process harness
+make demo-inprocess
 make benchmark
 ```
 
@@ -41,12 +43,13 @@ Current:
 - deterministic fault-controller unit tests;
 - causal graph and divergence unit tests;
 - outcome-signature unit tests;
-- end-to-end healthy → injected failure → replay integration test.
+- collector queue/overload and exporter tests;
+- W3C trace-context tests;
+- multi-process healthy → injected failure → replay integration test across 10 service processes + broker + collector.
 
 Planned:
 
 - property tests for graph invariants and event normalization;
-- multi-process distributed integration tests;
 - broker/message-order fault tests;
 - persistence crash/recovery tests;
 - eBPF integration tests on Linux CI runners;

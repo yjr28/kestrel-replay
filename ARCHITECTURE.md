@@ -13,37 +13,64 @@ The system must never infer stronger causality or replay guarantees than the evi
 
 ## Current architecture
 
-The first vertical slice is intentionally compact. Ten logical application services communicate through local HTTP TCP listeners. A recorder normalizes application/fault events, a graph builder reconstructs explicit causal edges, and replay compares outcome signatures from fresh executions driven by the same fault schedule.
+The current vertical slice runs **12 independent OS processes**: 10 application services, one asynchronous broker, and one Kestrel collector. Services communicate over HTTP/TCP, propagate W3C `traceparent`, and export normalized evidence through bounded asynchronous exporter queues. The collector validates events, assigns a global ingestion sequence, exposes queue/drop/error metrics, and serves experiment events to the graph/replay pipeline.
 
 ```mermaid
 flowchart TB
-    subgraph Application
+    subgraph Services[10 service processes]
       G[gateway] --> A[auth] --> AC[account] --> O[order]
       O --> I[inventory]
       O --> P[pricing]
       O --> PAY[payment]
-      O -. event .-> N[notification]
-      O -. event .-> AU[audit]
-      O -. event .-> AN[analytics]
     end
 
+    O --> B[broker process]
+    B --> N[notification]
+    B --> AU[audit]
+    B --> AN[analytics]
+
     F[Seeded fault controller] --> I
-    Application --> E[Normalized event stream]
-    F --> E
-    E --> CG[Causal graph builder]
+
+    G -. normalized events .-> C[collector process]
+    A -. normalized events .-> C
+    AC -. normalized events .-> C
+    O -. normalized events .-> C
+    I -. normalized events .-> C
+    P -. normalized events .-> C
+    PAY -. normalized events .-> C
+    N -. normalized events .-> C
+    AU -. normalized events .-> C
+    AN -. normalized events .-> C
+    F -. fault evidence .-> C
+
+    C --> CG[Causal graph builder]
     CG --> D[Divergence detector]
-    E --> R[Replay outcome signature]
+    C --> R[Replay outcome signature]
 ```
 
 ### Current boundaries
 
-- HTTP traffic uses real loopback TCP sockets, but all listeners live in one process.
-- The asynchronous path is a Go goroutine/fan-out rather than a durable broker.
-- Trace/span propagation is Kestrel-native header propagation, not OpenTelemetry yet.
-- Events are held in memory for one experiment.
-- No kernel events are collected yet.
+- Each application service, broker, and collector is a separate OS process, but the demo still runs on one host over loopback TCP.
+- Trace propagation uses standards-compliant W3C `traceparent`, while span/event emission is a lightweight Kestrel implementation rather than the OpenTelemetry SDK.
+- The broker is a real separate network process with a bounded queue, but it is not durable and does not yet support controlled reordering/duplication faults.
+- Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters instead of blocking indefinitely.
+- The collector stores one experiment in memory; PostgreSQL/append-only persistence is not implemented yet.
+- No kernel/eBPF evidence is collected yet.
+- The current demo proves Level-B replay for the tested latency/timeout path only.
 
-These are development constraints, not claims about the target architecture.
+These are measured implementation boundaries, not claims about the target architecture.
+
+### Collector observability
+
+The standalone collector exposes:
+
+- accepted/stored/invalid/dropped event counts;
+- queue depth and capacity;
+- cumulative storage latency;
+- HTTP `429` overload behavior with `Retry-After`;
+- `/healthz`, `/v1/stats`, `/metrics`, and trace-filtered event retrieval.
+
+The service-side exporter separately tracks sent, dropped, error, and queued counts. The broker reports queued/in-flight/delivered/error counts.
 
 ## Target architecture
 
