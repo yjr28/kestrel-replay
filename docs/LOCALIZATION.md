@@ -26,9 +26,11 @@ Tie-breaking is deterministic by service, operation, then reason.
 
 ## Async message-topology evidence
 
-Kestrel also builds an empirical message-topology profile from the same healthy-run set. For each `(topic, action, service)` flow it records the observed count envelope plus per-run evidence: the count and exact application event IDs observed in each healthy run. An absent flow in a particular healthy run is represented explicitly as a zero count with no event IDs.
+Kestrel also builds an empirical message-topology profile from the same healthy-run set. Only application message events with a non-empty `topic`, supported `message.action`, and non-empty `message.id` are eligible to affect this profile or a failing-run topology comparison. Requiring message identity prevents uncorrelatable telemetry from establishing or satisfying a topology divergence.
 
-`graph.CompareMessageTopology` reports only application message evidence. For flows that exceed or fall below a healthy envelope, the divergence carries the per-run healthy evidence and the exact failing event IDs. For a flow never seen in the healthy profile, the divergence carries an explicit zero-count record for every healthy run together with the failing events that establish the newly observed flow. It can distinguish:
+For each eligible `(topic, action, service)` flow it records the observed count envelope plus per-run evidence: the count and exact application event IDs observed in each healthy run. An absent flow in a particular healthy run is represented explicitly as a zero count with no event IDs.
+
+`graph.CompareMessageTopology` reports only eligible application message evidence. For flows that exceed or fall below a healthy envelope, the divergence carries the per-run healthy evidence and the exact failing event IDs. For a flow never seen in the healthy profile, the divergence carries an explicit zero-count record for every healthy run together with the failing events that establish the newly observed flow. It can distinguish:
 
 - count above the healthy range;
 - count below the healthy range;
