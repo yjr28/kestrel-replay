@@ -25,6 +25,14 @@ func TestMessageTopologyProfileFindsDuplicateConsumerMultiplicity(t *testing.T) 
 		if baseline.MinCount != 1 || baseline.MaxCount != 1 || baseline.MedianCount != 1 || !baseline.Stable {
 			t.Fatalf("unexpected healthy multiplicity: %+v", baseline)
 		}
+		if len(baseline.HealthyRuns) != 3 {
+			t.Fatalf("missing healthy-run provenance: %+v", baseline)
+		}
+		for runIndex, evidence := range baseline.HealthyRuns {
+			if evidence.RunIndex != runIndex || evidence.Count != 1 || len(evidence.EventIDs) != 1 {
+				t.Fatalf("unexpected healthy-run evidence: %+v", evidence)
+			}
+		}
 	}
 
 	failing := messageRun("f", now.Add(3*time.Second), 2)
@@ -39,6 +47,9 @@ func TestMessageTopologyProfileFindsDuplicateConsumerMultiplicity(t *testing.T) 
 		}
 		if divergence.HealthyMedian != 1 || divergence.HealthyMax != 1 || divergence.FailingCount != 2 || divergence.CountDelta != 1 || len(divergence.FailingEventIDs) != 2 {
 			t.Fatalf("unexpected multiplicity evidence: %+v", divergence)
+		}
+		if len(divergence.HealthyRuns) != 3 {
+			t.Fatalf("divergence lost healthy provenance: %+v", divergence)
 		}
 		seen[divergence.Service] = true
 	}
@@ -82,9 +93,15 @@ func TestMessageTopologyProfileReportsMissingAndUnexpectedFlows(t *testing.T) {
 	var missingAnalytics, unexpectedSearch bool
 	for _, divergence := range divergences {
 		if divergence.Service == "analytics" && divergence.Reason == "count_below_healthy_range" && divergence.FailingCount == 0 {
+			if len(divergence.HealthyRuns) != 2 || len(divergence.HealthyRuns[0].EventIDs) != 1 || len(divergence.HealthyRuns[1].EventIDs) != 1 {
+				t.Fatalf("missing flow lost healthy evidence: %+v", divergence)
+			}
 			missingAnalytics = true
 		}
 		if divergence.Service == "search-index" && divergence.Reason == "unexpected_message_flow" && divergence.FailingCount == 1 {
+			if len(divergence.HealthyRuns) != 0 || len(divergence.FailingEventIDs) != 1 {
+				t.Fatalf("unexpected flow should be supported only by failing events: %+v", divergence)
+			}
 			unexpectedSearch = true
 		}
 	}
@@ -102,9 +119,41 @@ func TestMessageTopologyProfileKeepsOptionalHealthyEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var warehouse MessageFlowBaseline
+	for _, baseline := range profile.Baselines() {
+		if baseline.Service == "warehouse" {
+			warehouse = baseline
+			break
+		}
+	}
+	if len(warehouse.HealthyRuns) != 3 || warehouse.HealthyRuns[0].Count != 1 || warehouse.HealthyRuns[1].Count != 0 || len(warehouse.HealthyRuns[1].EventIDs) != 0 || warehouse.HealthyRuns[2].Count != 1 {
+		t.Fatalf("optional flow provenance must preserve explicit zero-count run: %+v", warehouse)
+	}
+
 	failing := append(messageRun("f", now.Add(3*time.Second), 1), messageEvent("f-optional", "warehouse", "consume", now.Add(3*time.Second)))
 	if divergences := CompareMessageTopology(profile, failing); len(divergences) != 0 {
 		t.Fatalf("optional healthy flow inside empirical 0..1 envelope diverged: %#v", divergences)
+	}
+}
+
+func TestMessageTopologyProfileReturnsDefensiveHealthyEvidenceCopies(t *testing.T) {
+	now := time.Now().UTC()
+	profile, err := BuildMessageTopologyProfile([][]model.Event{
+		messageRun("h1", now, 1),
+		messageRun("h2", now.Add(time.Second), 1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselines := profile.Baselines()
+	if len(baselines) == 0 || len(baselines[0].HealthyRuns) == 0 || len(baselines[0].HealthyRuns[0].EventIDs) == 0 {
+		t.Fatalf("missing baseline provenance: %#v", baselines)
+	}
+	originalID := baselines[0].HealthyRuns[0].EventIDs[0]
+	baselines[0].HealthyRuns[0].EventIDs[0] = "mutated"
+	baselinesAgain := profile.Baselines()
+	if baselinesAgain[0].HealthyRuns[0].EventIDs[0] != originalID {
+		t.Fatalf("caller mutated profile provenance through returned baseline: %#v", baselinesAgain[0])
 	}
 }
 

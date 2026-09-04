@@ -13,17 +13,27 @@ type messageFlowKey struct {
 	service string
 }
 
+// MessageFlowRunEvidence records the exact application events observed for one
+// message-flow key in a healthy run. A zero Count with no EventIDs is explicit
+// evidence that the flow was absent from that run.
+type MessageFlowRunEvidence struct {
+	RunIndex int      `json:"run_index"`
+	Count    int      `json:"count"`
+	EventIDs []string `json:"event_ids,omitempty"`
+}
+
 // MessageFlowBaseline is the empirical count envelope for one application
 // message-flow key across healthy runs. It is descriptive, not probabilistic.
 type MessageFlowBaseline struct {
-	Topic       string `json:"topic"`
-	Action      string `json:"action"`
-	Service     string `json:"service"`
-	SampleCount int    `json:"sample_count"`
-	MedianCount int    `json:"median_count"`
-	MinCount    int    `json:"min_count"`
-	MaxCount    int    `json:"max_count"`
-	Stable      bool   `json:"stable"`
+	Topic       string                   `json:"topic"`
+	Action      string                   `json:"action"`
+	Service     string                   `json:"service"`
+	SampleCount int                      `json:"sample_count"`
+	MedianCount int                      `json:"median_count"`
+	MinCount    int                      `json:"min_count"`
+	MaxCount    int                      `json:"max_count"`
+	Stable      bool                     `json:"stable"`
+	HealthyRuns []MessageFlowRunEvidence `json:"healthy_runs"`
 }
 
 // MessageTopologyProfile describes observed publish/consume multiplicity across
@@ -38,27 +48,30 @@ type MessageTopologyProfile struct {
 // envelope. It identifies the observable flow whose multiplicity changed; it
 // does not by itself claim which infrastructure component caused the change.
 type MessageTopologyDivergence struct {
-	Topic           string   `json:"topic"`
-	Action          string   `json:"action"`
-	Service         string   `json:"service"`
-	Reason          string   `json:"reason"`
-	HealthyMedian   int      `json:"healthy_median_count"`
-	HealthyMin      int      `json:"healthy_min_count"`
-	HealthyMax      int      `json:"healthy_max_count"`
-	FailingCount    int      `json:"failing_count"`
-	CountDelta      int      `json:"count_delta"`
-	FailingEventIDs []string `json:"failing_event_ids,omitempty"`
+	Topic           string                   `json:"topic"`
+	Action          string                   `json:"action"`
+	Service         string                   `json:"service"`
+	Reason          string                   `json:"reason"`
+	HealthyMedian   int                      `json:"healthy_median_count"`
+	HealthyMin      int                      `json:"healthy_min_count"`
+	HealthyMax      int                      `json:"healthy_max_count"`
+	FailingCount    int                      `json:"failing_count"`
+	CountDelta      int                      `json:"count_delta"`
+	HealthyRuns     []MessageFlowRunEvidence `json:"healthy_runs,omitempty"`
+	FailingEventIDs []string                 `json:"failing_event_ids,omitempty"`
 }
 
 func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, error) {
 	if len(runs) < 2 {
 		return MessageTopologyProfile{}, fmt.Errorf("message topology profile requires at least two healthy runs")
 	}
-	perRun := make([]map[messageFlowKey]int, 0, len(runs))
+	perRunCounts := make([]map[messageFlowKey]int, 0, len(runs))
+	perRunEventIDs := make([]map[messageFlowKey][]string, 0, len(runs))
 	allKeys := make(map[messageFlowKey]struct{})
 	for _, run := range runs {
-		counts, _ := messageFlowCounts(run)
-		perRun = append(perRun, counts)
+		counts, eventIDs := messageFlowCounts(run)
+		perRunCounts = append(perRunCounts, counts)
+		perRunEventIDs = append(perRunEventIDs, eventIDs)
 		for key := range counts {
 			allKeys[key] = struct{}{}
 		}
@@ -70,8 +83,15 @@ func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, 
 	profile := MessageTopologyProfile{RunCount: len(runs), baselines: make(map[messageFlowKey]MessageFlowBaseline, len(allKeys))}
 	for key := range allKeys {
 		values := make([]int, 0, len(runs))
-		for _, counts := range perRun {
-			values = append(values, counts[key])
+		healthyRuns := make([]MessageFlowRunEvidence, 0, len(runs))
+		for runIndex, counts := range perRunCounts {
+			count := counts[key]
+			values = append(values, count)
+			healthyRuns = append(healthyRuns, MessageFlowRunEvidence{
+				RunIndex: runIndex,
+				Count:    count,
+				EventIDs: append([]string(nil), perRunEventIDs[runIndex][key]...),
+			})
 		}
 		sorted := append([]int(nil), values...)
 		sort.Ints(sorted)
@@ -79,6 +99,7 @@ func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, 
 			Topic: key.topic, Action: key.action, Service: key.service,
 			SampleCount: len(runs), MedianCount: medianInt(sorted),
 			MinCount: sorted[0], MaxCount: sorted[len(sorted)-1],
+			HealthyRuns: healthyRuns,
 		}
 		baseline.Stable = baseline.MinCount == baseline.MaxCount
 		profile.baselines[key] = baseline
@@ -89,6 +110,7 @@ func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, 
 func (p MessageTopologyProfile) Baselines() []MessageFlowBaseline {
 	out := make([]MessageFlowBaseline, 0, len(p.baselines))
 	for _, baseline := range p.baselines {
+		baseline.HealthyRuns = cloneMessageFlowRunEvidence(baseline.HealthyRuns)
 		out = append(out, baseline)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -121,6 +143,7 @@ func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Even
 			Topic: key.topic, Action: key.action, Service: key.service, Reason: reason,
 			HealthyMedian: baseline.MedianCount, HealthyMin: baseline.MinCount, HealthyMax: baseline.MaxCount,
 			FailingCount: failingCount, CountDelta: failingCount - baseline.MedianCount,
+			HealthyRuns: cloneMessageFlowRunEvidence(baseline.HealthyRuns),
 			FailingEventIDs: append([]string(nil), eventIDs[key]...),
 		})
 	}
@@ -149,6 +172,15 @@ func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Even
 		return divergences[i].Service < divergences[j].Service
 	})
 	return divergences
+}
+
+func cloneMessageFlowRunEvidence(in []MessageFlowRunEvidence) []MessageFlowRunEvidence {
+	out := make([]MessageFlowRunEvidence, len(in))
+	for i, evidence := range in {
+		out[i] = evidence
+		out[i].EventIDs = append([]string(nil), evidence.EventIDs...)
+	}
+	return out
 }
 
 func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string) {
