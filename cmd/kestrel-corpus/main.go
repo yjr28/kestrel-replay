@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	reportSchemaVersion = 3
+	reportSchemaVersion = 4
 	healthyProfileRuns  = 3
 )
 
@@ -42,46 +42,53 @@ type healthyBaselineReport struct {
 }
 
 type caseReport struct {
-	CaseID                 string                          `json:"case_id"`
-	FaultKind              string                          `json:"fault_kind"`
-	ArtifactDir            string                          `json:"artifact_dir,omitempty"`
-	EventCount             int                             `json:"event_count,omitempty"`
-	EventsSHA256           string                          `json:"events_sha256,omitempty"`
-	RecordedOutcome        replay.OutcomeSignature         `json:"recorded_outcome"`
-	RecordedMessages       replay.MessageDeliverySignature `json:"recorded_message_delivery"`
-	ReplayedOutcome        replay.OutcomeSignature         `json:"replayed_outcome"`
-	ReplayedMessages       replay.MessageDeliverySignature `json:"replayed_message_delivery"`
-	OutcomeMatch           bool                            `json:"outcome_match"`
-	MessageMatch           bool                            `json:"message_delivery_match"`
-	ReplayMatch            bool                            `json:"replay_match"`
-	LocalizationEligible   bool                            `json:"localization_eligible"`
-	ExpectedLocalization   *corpus.LocalizationTruth       `json:"expected_localization,omitempty"`
-	LocalizationTop1       bool                            `json:"localization_top1"`
-	LocalizationTop3       bool                            `json:"localization_top3"`
-	LocalizationCandidates []graph.LocalizationCandidate  `json:"localization_candidates,omitempty"`
-	RegressionPass         bool                            `json:"regression_pass"`
-	Error                  string                          `json:"error,omitempty"`
+	CaseID                     string                            `json:"case_id"`
+	FaultKind                  string                            `json:"fault_kind"`
+	ArtifactDir                string                            `json:"artifact_dir,omitempty"`
+	EventCount                 int                               `json:"event_count,omitempty"`
+	EventsSHA256               string                            `json:"events_sha256,omitempty"`
+	RecordedOutcome            replay.OutcomeSignature           `json:"recorded_outcome"`
+	RecordedMessages           replay.MessageDeliverySignature   `json:"recorded_message_delivery"`
+	ReplayedOutcome            replay.OutcomeSignature           `json:"replayed_outcome"`
+	ReplayedMessages           replay.MessageDeliverySignature   `json:"replayed_message_delivery"`
+	OutcomeMatch               bool                              `json:"outcome_match"`
+	MessageMatch               bool                              `json:"message_delivery_match"`
+	ReplayMatch                bool                              `json:"replay_match"`
+	LocalizationEligible       bool                              `json:"localization_eligible"`
+	ExpectedLocalization       *corpus.LocalizationTruth         `json:"expected_localization,omitempty"`
+	LocalizationTop1           bool                              `json:"localization_top1"`
+	LocalizationTop3           bool                              `json:"localization_top3"`
+	LocalizationCandidates     []graph.LocalizationCandidate    `json:"localization_candidates,omitempty"`
+	MessageTopologyEligible    bool                              `json:"message_topology_eligible"`
+	ExpectedMessageTopology    *corpus.MessageTopologyTruth      `json:"expected_message_topology,omitempty"`
+	MessageTopologyMatch       bool                              `json:"message_topology_match"`
+	MessageTopologyDivergences []graph.MessageTopologyDivergence `json:"message_topology_divergences,omitempty"`
+	RegressionPass             bool                              `json:"regression_pass"`
+	Error                      string                            `json:"error,omitempty"`
 }
 
 type corpusReport struct {
-	SchemaVersion             int                     `json:"schema_version"`
-	CorpusVersion             string                  `json:"corpus_version"`
-	RunID                     string                  `json:"run_id"`
-	CreatedAt                 time.Time               `json:"created_at"`
-	CompletedAt               time.Time               `json:"completed_at"`
-	CaseCount                 int                     `json:"case_count"`
-	PassedCount               int                     `json:"passed_count"`
-	FailedCount               int                     `json:"failed_count"`
-	ReplayPassedCount         int                     `json:"replay_passed_count"`
-	ReplayFailedCount         int                     `json:"replay_failed_count"`
-	LocalizationEligibleCount int                     `json:"localization_eligible_count"`
-	LocalizationTop1Count     int                     `json:"localization_top1_count"`
-	LocalizationTop3Count     int                     `json:"localization_top3_count"`
-	HealthyProfileRunCount    int                     `json:"healthy_profile_run_count"`
-	HealthyBaselines          []healthyBaselineReport `json:"healthy_baselines"`
-	HealthyProfile            []graph.SpanBaseline    `json:"healthy_profile"`
-	ReportPath                string                  `json:"report_path"`
-	Cases                     []caseReport            `json:"cases"`
+	SchemaVersion                int                         `json:"schema_version"`
+	CorpusVersion                string                      `json:"corpus_version"`
+	RunID                        string                      `json:"run_id"`
+	CreatedAt                    time.Time                   `json:"created_at"`
+	CompletedAt                  time.Time                   `json:"completed_at"`
+	CaseCount                    int                         `json:"case_count"`
+	PassedCount                  int                         `json:"passed_count"`
+	FailedCount                  int                         `json:"failed_count"`
+	ReplayPassedCount            int                         `json:"replay_passed_count"`
+	ReplayFailedCount            int                         `json:"replay_failed_count"`
+	LocalizationEligibleCount    int                         `json:"localization_eligible_count"`
+	LocalizationTop1Count        int                         `json:"localization_top1_count"`
+	LocalizationTop3Count        int                         `json:"localization_top3_count"`
+	MessageTopologyEligibleCount int                         `json:"message_topology_eligible_count"`
+	MessageTopologyPassedCount   int                         `json:"message_topology_passed_count"`
+	HealthyProfileRunCount       int                         `json:"healthy_profile_run_count"`
+	HealthyBaselines             []healthyBaselineReport     `json:"healthy_baselines"`
+	HealthyProfile               []graph.SpanBaseline        `json:"healthy_profile"`
+	HealthyMessageTopology       []graph.MessageFlowBaseline `json:"healthy_message_topology"`
+	ReportPath                   string                      `json:"report_path"`
+	Cases                        []caseReport                `json:"cases"`
 }
 
 func main() {
@@ -119,6 +126,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("build healthy profile: %v", err)
 	}
+	messageProfile, err := graph.BuildMessageTopologyProfile(healthyRuns)
+	if err != nil {
+		log.Fatalf("build healthy message topology: %v", err)
+	}
 
 	report := corpusReport{
 		SchemaVersion:          reportSchemaVersion,
@@ -129,11 +140,12 @@ func main() {
 		HealthyProfileRunCount: profile.RunCount,
 		HealthyBaselines:       healthyReports,
 		HealthyProfile:         profile.Baselines(),
+		HealthyMessageTopology: messageProfile.Baselines(),
 		ReportPath:             reportPath,
 	}
 
 	for _, c := range corpus.Cases() {
-		cr := runCase(*node, *replayBin, artifactRoot, runID, profile, c)
+		cr := runCase(*node, *replayBin, artifactRoot, runID, profile, messageProfile, c)
 		report.Cases = append(report.Cases, cr)
 		if cr.ReplayMatch {
 			report.ReplayPassedCount++
@@ -147,6 +159,12 @@ func main() {
 			}
 			if cr.LocalizationTop3 {
 				report.LocalizationTop3Count++
+			}
+		}
+		if cr.MessageTopologyEligible {
+			report.MessageTopologyEligibleCount++
+			if cr.MessageTopologyMatch {
+				report.MessageTopologyPassedCount++
 			}
 		}
 		if cr.RegressionPass {
@@ -167,17 +185,21 @@ func main() {
 			log.Fatal(err)
 		}
 	} else {
-		fmt.Printf("corpus=%s run=%s cases=%d passed=%d failed=%d replay=%d/%d healthy_profile_runs=%d localization_top1=%d/%d localization_top3=%d/%d report=%s\n",
+		fmt.Printf("corpus=%s run=%s cases=%d passed=%d failed=%d replay=%d/%d healthy_profile_runs=%d localization_top1=%d/%d localization_top3=%d/%d message_topology=%d/%d report=%s\n",
 			report.CorpusVersion, report.RunID, report.CaseCount, report.PassedCount, report.FailedCount,
 			report.ReplayPassedCount, report.CaseCount, report.HealthyProfileRunCount,
 			report.LocalizationTop1Count, report.LocalizationEligibleCount,
 			report.LocalizationTop3Count, report.LocalizationEligibleCount,
+			report.MessageTopologyPassedCount, report.MessageTopologyEligibleCount,
 			report.ReportPath,
 		)
 		for _, c := range report.Cases {
 			fmt.Printf("case=%s kind=%s replay_match=%t regression_pass=%t", c.CaseID, c.FaultKind, c.ReplayMatch, c.RegressionPass)
 			if c.LocalizationEligible {
 				fmt.Printf(" localization_top1=%t localization_top3=%t", c.LocalizationTop1, c.LocalizationTop3)
+			}
+			if c.MessageTopologyEligible {
+				fmt.Printf(" message_topology_match=%t", c.MessageTopologyMatch)
 			}
 			if c.Error != "" {
 				fmt.Printf(" error=%q", c.Error)
@@ -233,7 +255,7 @@ func recordHealthyBaselines(node, artifactRoot, runID string, count int) ([]heal
 	return reports, artifacts, nil
 }
 
-func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyProfile, c corpus.Case) caseReport {
+func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyProfile, messageProfile graph.MessageTopologyProfile, c corpus.Case) caseReport {
 	cr := caseReport{CaseID: c.ID, FaultKind: string(c.Fault.Kind)}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	result, err := orchestrator.RunScenario(ctx, node, &c.Fault, "corpus-"+runID+"-"+c.ID)
@@ -283,6 +305,20 @@ func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyP
 		cr.LocalizationCandidates = firstCandidates(candidates, 5)
 		cr.LocalizationTop1 = graph.TopKContains(candidates, truth.Service, truth.Operation, 1)
 		cr.LocalizationTop3 = graph.TopKContains(candidates, truth.Service, truth.Operation, 3)
+		if !cr.LocalizationTop1 {
+			appendCaseError(&cr, fmt.Sprintf("expected localization %s/%s was not top-1", truth.Service, truth.Operation))
+		}
+	}
+
+	cr.MessageTopologyDivergences = graph.CompareMessageTopology(messageProfile, artifact.Events)
+	if truth, ok := corpus.ExpectedMessageTopology(c); ok {
+		cr.MessageTopologyEligible = true
+		cr.ExpectedMessageTopology = &truth
+		if err := corpus.ValidateMessageTopology(c, cr.MessageTopologyDivergences); err != nil {
+			appendCaseError(&cr, "message topology: "+err.Error())
+		} else {
+			cr.MessageTopologyMatch = true
+		}
 	}
 
 	replayCtx, replayCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -295,12 +331,12 @@ func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyP
 	)
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
-		cr.Error = fmt.Sprintf("artifact replay: %v output=%s", err, strings.TrimSpace(string(raw)))
+		appendCaseError(&cr, fmt.Sprintf("artifact replay: %v output=%s", err, strings.TrimSpace(string(raw))))
 		return cr
 	}
 	var rr artifactReplayReport
 	if err := json.Unmarshal(raw, &rr); err != nil {
-		cr.Error = fmt.Sprintf("decode artifact replay report: %v output=%s", err, strings.TrimSpace(string(raw)))
+		appendCaseError(&cr, fmt.Sprintf("decode artifact replay report: %v output=%s", err, strings.TrimSpace(string(raw))))
 		return cr
 	}
 	cr.ReplayedOutcome = rr.ReplayedOutcome
@@ -309,10 +345,9 @@ func runCase(node, replayBin, artifactRoot, runID string, profile graph.HealthyP
 	cr.MessageMatch = replay.EquivalentMessageDelivery(cr.RecordedMessages, cr.ReplayedMessages)
 	cr.ReplayMatch = rr.ReplayMatch && rr.MessageDeliveryMatch && cr.OutcomeMatch && cr.MessageMatch
 	if !cr.ReplayMatch {
-		cr.Error = "replayed evidence did not match recorded artifact"
-		return cr
+		appendCaseError(&cr, "replayed evidence did not match recorded artifact")
 	}
-	cr.RegressionPass = !cr.LocalizationEligible || cr.LocalizationTop1
+	cr.RegressionPass = cr.ReplayMatch && (!cr.LocalizationEligible || cr.LocalizationTop1) && (!cr.MessageTopologyEligible || cr.MessageTopologyMatch)
 	return cr
 }
 
@@ -324,6 +359,18 @@ func firstCandidates(candidates []graph.LocalizationCandidate, limit int) []grap
 		limit = len(candidates)
 	}
 	return append([]graph.LocalizationCandidate(nil), candidates[:limit]...)
+}
+
+func appendCaseError(report *caseReport, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	if report.Error == "" {
+		report.Error = message
+		return
+	}
+	report.Error += "; " + message
 }
 
 func writeReport(path string, report corpusReport) error {
