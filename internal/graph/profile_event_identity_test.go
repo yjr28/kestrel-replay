@@ -19,6 +19,29 @@ func TestHealthyProfileRequiresIdentifiedEvidenceInEveryRun(t *testing.T) {
 	}
 }
 
+func TestHealthyProfileRequiresNamedLocalizationKeyInEveryRun(t *testing.T) {
+	now := time.Now().UTC()
+	cases := []struct {
+		name      string
+		service   string
+		operation string
+	}{
+		{name: "blank service", service: " ", operation: "check"},
+		{name: "blank operation", service: "inventory", operation: "\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := BuildHealthyProfile([][]model.Event{
+				{profileSpan("h1", "inventory", "check", "ok", 1000, now)},
+				{profileSpan("h2", tc.service, tc.operation, "ok", 1000, now.Add(time.Second))},
+			})
+			if err == nil || !strings.Contains(err.Error(), "no service/operation present in every run") {
+				t.Fatalf("unnamed localization key must not satisfy a stable baseline: %v", err)
+			}
+		})
+	}
+}
+
 func TestHealthyProfileDoesNotTreatUnidentifiedSpanAsObservedTopology(t *testing.T) {
 	now := time.Now().UTC()
 	profile, err := BuildHealthyProfile([][]model.Event{
