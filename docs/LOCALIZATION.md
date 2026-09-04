@@ -12,7 +12,7 @@ The current application-span localizer can use:
 - spans present only in the failing execution;
 - the externally observed terminal service from the outcome signature as an optional anchor.
 
-Each divergence carries the exact healthy/failing event IDs that support it when those events exist. When the external terminal service affects ranking, the candidate records an `outcome.terminal_service=<service>` anchor.
+For ranked single-run span localization, an application span must have a non-empty event ID before it can establish or satisfy a divergence. This keeps candidate provenance auditable: an unnamed span cannot silently replace a missing healthy/failing observation or create an `unexpected_span` candidate. Each accepted divergence carries the exact healthy/failing event IDs that support it when those events exist. When the external terminal service affects ranking, the candidate records an `outcome.terminal_service=<service>` anchor.
 
 The corpus currently builds its healthy span profile from three separately recorded healthy executions. The profile stores descriptive timing/count statistics; these are empirical regression baselines, not calibrated probability models.
 
