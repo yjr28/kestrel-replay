@@ -14,6 +14,8 @@ The current application-span localizer can use:
 
 Application-span evidence must have a non-empty event ID before it can establish or satisfy a divergence. This eligibility rule applies to ranked single-run localization, the earlier single-divergence primitive, and multi-run healthy span profiles. It keeps provenance auditable: an unnamed span cannot silently replace a missing healthy/failing observation, create an `unexpected_span` candidate, or mark a healthy topology key as observed. Each accepted divergence carries the exact healthy/failing event IDs that support it when those events exist. When the external terminal service affects ranking, the candidate records an `outcome.terminal_service=<service>` anchor.
 
+Retry semantics are not modeled by the current span localizers. For single-run comparisons, more than one identified application span with the same `(service, operation)` makes that key ambiguous, so ranked localization and the earlier single-divergence primitive abstain on that key rather than choosing an event by timestamp or input order. Profile-vs-failing localization applies the same rule to duplicate keys in the failing run, preventing ambiguity from being mislabeled as a missing span. Healthy-profile construction is stricter: it rejects a healthy run containing duplicate eligible spans for the same key instead of silently building a baseline from one of them. Unidentified duplicate spans remain ineligible evidence and therefore do not create this ambiguity.
+
 The corpus currently builds its healthy span profile from three separately recorded healthy executions. The profile stores descriptive timing/count statistics; these are empirical regression baselines, not calibrated probability models.
 
 ## Ranked candidates
