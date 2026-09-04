@@ -12,7 +12,7 @@ The current application-span localizer can use:
 - spans present only in the failing execution;
 - the externally observed terminal service from the outcome signature as an optional anchor.
 
-For ranked single-run span localization, an application span must have a non-empty event ID before it can establish or satisfy a divergence. This keeps candidate provenance auditable: an unnamed span cannot silently replace a missing healthy/failing observation or create an `unexpected_span` candidate. Each accepted divergence carries the exact healthy/failing event IDs that support it when those events exist. When the external terminal service affects ranking, the candidate records an `outcome.terminal_service=<service>` anchor.
+Application-span evidence must have a non-empty event ID before it can establish or satisfy a divergence. This eligibility rule applies to ranked single-run localization, the earlier single-divergence primitive, and multi-run healthy span profiles. It keeps provenance auditable: an unnamed span cannot silently replace a missing healthy/failing observation, create an `unexpected_span` candidate, or mark a healthy topology key as observed. Each accepted divergence carries the exact healthy/failing event IDs that support it when those events exist. When the external terminal service affects ranking, the candidate records an `outcome.terminal_service=<service>` anchor.
 
 The corpus currently builds its healthy span profile from three separately recorded healthy executions. The profile stores descriptive timing/count statistics; these are empirical regression baselines, not calibrated probability models.
 
@@ -40,9 +40,11 @@ These records establish observed topology differences; they do not by themselves
 
 The current duplicate-delivery corpus case is evaluated with seeded truth outside the graph comparator. The expected observation is one `orders.completed` publish and duplicated consumes at notification, audit, and analytics. This is a structural regression check; it does not claim that consumer-side multiplicity alone identifies an infrastructure root cause.
 
+The fixed-delay `delayed_message` corpus slice has a separate correlated timing-evidence gate. That evidence checks the implemented broker-owned fixed-delay behavior; it does not establish arbitrary scheduling determinism, message reordering support, or Level-C replay semantics.
+
 ## Seeded-truth evaluation
 
-The v1 incident corpus stores localization truth separately from the graph package. Candidate ranking completes before that truth is consulted. The corpus then evaluates whether the expected `(service, operation)` appears at top-1 and top-3.
+The versioned incident corpus stores localization truth separately from the graph package. Candidate ranking completes before that truth is consulted. The corpus then evaluates whether the expected `(service, operation)` appears at top-1 and top-3 for the span-localization-eligible cases.
 
 Span-localization eligibility remains intentionally narrow:
 
@@ -50,18 +52,9 @@ Span-localization eligibility remains intentionally narrow:
 - `inventory-connection-reset` → `inventory/check`;
 - `inventory-pre-request-crash` → `inventory/check`.
 
-`orders-completed-duplicate` is still excluded from span-localization top-k evaluation. It has its own message-topology regression gate because the currently observed divergence is a one-to-many consume multiplicity change rather than a single application-span culprit.
+`orders-completed-duplicate` is excluded from span-localization top-k evaluation. It has its own message-topology regression gate because the currently observed divergence is a one-to-many consume multiplicity change rather than a single application-span culprit. The fixed-delay delayed-message slice likewise uses its dedicated correlated timing evidence rather than being counted as span-localization truth.
 
-## Current regression observation
-
-GitHub Actions at commit `43ad283` produced one retained v1 corpus run with:
-
-- replay regression: 4/4 cases passed;
-- localization top-1: 3/3 span-localization-eligible cases;
-- localization top-3: 3/3 span-localization-eligible cases;
-- message-topology validation: 1/1 eligible case.
-
-The same run used three healthy executions to construct the span and message-topology profiles. These numbers describe one deterministic regression run over the current tiny seeded corpus. They are not a publishable replay-success rate, production root-cause accuracy estimate, or statistically meaningful benchmark.
+GitHub Actions is the authoritative regression gate for this branch. It runs tests, `go vet`, the current versioned corpus, and retains corpus evidence. Passing that gate establishes only that the checked implementation and seeded regression cases agree at that exact commit; it is not a replay-success benchmark, a production root-cause accuracy estimate, or statistically meaningful evidence of general performance.
 
 ## Next localization work
 
