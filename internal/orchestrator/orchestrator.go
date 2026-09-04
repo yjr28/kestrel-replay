@@ -64,10 +64,7 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 	}
 
 	names := []string{"collector", "broker", "gateway", "auth", "account", "order", "inventory", "pricing", "payment", "notification", "audit", "analytics"}
-	addresses, err := allocateAddresses(names)
-	if err != nil {
-		return Result{}, err
-	}
+	addresses := make(map[string]string, len(names))
 	url := func(name string) string { return "http://" + addresses[name] }
 
 	var children []*child
@@ -80,7 +77,12 @@ func RunScenario(ctx context.Context, nodeBinary string, spec *fault.Spec, reque
 	defer stopAll()
 
 	start := func(name string, args ...string) error {
-		args = append(args, "-listen="+addresses[name])
+		address, err := allocateAddress()
+		if err != nil {
+			return fmt.Errorf("allocate %s address: %w", name, err)
+		}
+		addresses[name] = address
+		args = append(args, "-listen="+address)
 		c, err := startChild(ctx, name, nodeBinary, args)
 		if err != nil {
 			return err
@@ -286,17 +288,16 @@ func request(ctx context.Context, gatewayURL, requestID string) (replay.OutcomeS
 	return outcome, nil
 }
 
-func allocateAddresses(names []string) (map[string]string, error) {
-	out := make(map[string]string, len(names))
-	for _, name := range names {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return nil, err
-		}
-		out[name] = ln.Addr().String()
-		_ = ln.Close()
+func allocateAddress() (string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
 	}
-	return out, nil
+	address := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		return "", err
+	}
+	return address, nil
 }
 
 func startChild(ctx context.Context, name, binary string, args []string) (*child, error) {
