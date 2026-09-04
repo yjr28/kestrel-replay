@@ -61,3 +61,22 @@ func TestHealthyProfileIgnoresUnidentifiedDuplicateOfEligibleSpan(t *testing.T) 
 		t.Fatalf("unexpected identified baseline: %#v", baselines)
 	}
 }
+
+func TestProfileLocalizationExcludesAmbiguousDuplicateFailingSpans(t *testing.T) {
+	now := time.Now().UTC()
+	profile, err := BuildHealthyProfile([][]model.Event{
+		{profileSpan("h1", "inventory", "check", "ok", 1000, now)},
+		{profileSpan("h2", "inventory", "check", "ok", 1100, now.Add(time.Second))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	failing := []model.Event{
+		profileSpan("f1", "inventory", "check", "error", 9000, now.Add(2*time.Second)),
+		profileSpan("f2", "inventory", "check", "ok", 1000, now.Add(3*time.Second)),
+	}
+	if candidates := RankDivergencesAgainstProfile(profile, failing, 20*time.Millisecond, "inventory"); len(candidates) != 0 {
+		t.Fatalf("duplicate failing spans must not be reported as missing or reduced to arbitrary profile evidence: %#v", candidates)
+	}
+}
