@@ -29,9 +29,14 @@ type Graph struct {
 	Order []string               `json:"order"`
 }
 
+type spanIdentity struct {
+	traceID string
+	spanID  string
+}
+
 func Build(events []model.Event) (*Graph, error) {
 	g := &Graph{Nodes: make(map[string]model.Event, len(events))}
-	spans := map[string]string{}
+	spans := map[spanIdentity]string{}
 	publishers := map[string]string{}
 	faultsByService := map[string][]string{}
 
@@ -45,7 +50,11 @@ func Build(events []model.Event) (*Graph, error) {
 		g.Nodes[e.ID] = e
 		g.Order = append(g.Order, e.ID)
 		if e.Kind == model.KindSpan {
-			spans[e.SpanID] = e.ID
+			identity := spanIdentity{traceID: e.TraceID, spanID: e.SpanID}
+			if existing, exists := spans[identity]; exists {
+				return nil, fmt.Errorf("duplicate span identity trace_id=%q span_id=%q in events %q and %q", e.TraceID, e.SpanID, existing, e.ID)
+			}
+			spans[identity] = e.ID
 		}
 		if e.Kind == model.KindMessage && e.Attributes["message.action"] == "publish" {
 			publishers[e.Attributes["message.id"]] = e.ID
@@ -58,7 +67,8 @@ func Build(events []model.Event) (*Graph, error) {
 	for _, id := range g.Order {
 		e := g.Nodes[id]
 		if e.Kind == model.KindSpan && e.ParentSpanID != "" {
-			if parent, ok := spans[e.ParentSpanID]; ok {
+			parentIdentity := spanIdentity{traceID: e.TraceID, spanID: e.ParentSpanID}
+			if parent, ok := spans[parentIdentity]; ok {
 				g.Edges = append(g.Edges, Edge{From: parent, To: id, Kind: EdgeParentSpan})
 			}
 		}

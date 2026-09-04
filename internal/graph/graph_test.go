@@ -24,6 +24,34 @@ func TestBuildParentAndMessageEdges(t *testing.T) {
 	}
 }
 
+func TestBuildParentSpanIdentityIsTraceScoped(t *testing.T) {
+	now := time.Now()
+	events := []model.Event{
+		{ID: "trace-a-parent", Sequence: 1, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "trace-a", SpanID: "shared", Service: "gateway", Operation: "request", Timestamp: now},
+		{ID: "trace-b-child", Sequence: 2, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "trace-b", SpanID: "child", ParentSpanID: "shared", Service: "order", Operation: "create", Timestamp: now.Add(time.Millisecond)},
+	}
+	g, err := Build(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range g.Edges {
+		if edge.Kind == EdgeParentSpan {
+			t.Fatalf("span_id reuse across traces must not create a parent edge: %#v", g.Edges)
+		}
+	}
+}
+
+func TestBuildRejectsAmbiguousSpanIdentityWithinTrace(t *testing.T) {
+	now := time.Now()
+	events := []model.Event{
+		{ID: "first", Sequence: 1, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "trace", SpanID: "duplicate", Service: "gateway", Operation: "request", Timestamp: now},
+		{ID: "second", Sequence: 2, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "trace", SpanID: "duplicate", Service: "order", Operation: "create", Timestamp: now.Add(time.Millisecond)},
+	}
+	if _, err := Build(events); err == nil {
+		t.Fatal("duplicate (trace_id, span_id) identity must be rejected instead of choosing an arbitrary parent target")
+	}
+}
+
 func TestEarliestMeaningfulDivergenceLatency(t *testing.T) {
 	now := time.Now()
 	healthy := []model.Event{{ID: "h", Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t1", SpanID: "s1", Service: "inventory", Operation: "check", Timestamp: now, Status: "ok", Attributes: map[string]string{"duration_us": "1000"}}}
