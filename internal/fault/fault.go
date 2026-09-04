@@ -50,6 +50,16 @@ func (s Spec) Validate() error {
 		if s.Delay != 0 || s.JitterFraction != 0 {
 			return fmt.Errorf("connection reset does not accept delay or jitter parameters")
 		}
+	case ServiceCrash:
+		if s.Delay != 0 || s.JitterFraction != 0 {
+			return fmt.Errorf("service crash does not accept delay or jitter parameters")
+		}
+		if s.Operation != "" {
+			return fmt.Errorf("service crash is process-scoped and does not accept an operation")
+		}
+		if s.TriggerOnMatch != 1 {
+			return fmt.Errorf("service crash currently supports only trigger_on_match=1")
+		}
 	default:
 		return fmt.Errorf("fault kind %q is not implemented", s.Kind)
 	}
@@ -75,6 +85,9 @@ func NewController(specs []Spec) (*Controller, error) {
 		if err := s.Validate(); err != nil {
 			return nil, fmt.Errorf("fault %d: %w", i, err)
 		}
+		if s.Kind != Latency && s.Kind != ConnectionReset {
+			return nil, fmt.Errorf("fault %d: kind %q is not supported by the in-service controller", i, s.Kind)
+		}
 		c.rngs[i] = rand.New(rand.NewSource(s.Seed))
 	}
 	return c, nil
@@ -94,7 +107,6 @@ func (c *Controller) Decide(service, operation string) Decision {
 		}
 		delay := s.Delay
 		if s.JitterFraction > 0 && delay > 0 {
-			// One deterministic sample per injected occurrence, centered around the configured delay.
 			spread := float64(delay) * s.JitterFraction
 			delta := (c.rngs[i].Float64()*2 - 1) * spread
 			delay = time.Duration(float64(delay) + delta)

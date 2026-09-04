@@ -26,7 +26,7 @@ A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually
 | latency | implemented | Level B failure-schedule replay |
 | packet loss | planned; rejected by current validator | controlled schedule; outcome may vary by TCP behavior |
 | connection reset | implemented | Level B failure-schedule replay |
-| service crash | planned; rejected by current validator | Level B |
+| service crash | implemented for orchestrated pre-request `inventory` crash | Level B failure-schedule replay |
 | service restart | planned; rejected by current validator | Level B |
 | RPC timeout | planned; rejected by current validator | Level B |
 | duplicate message | planned; rejected by current validator | Level B/C |
@@ -62,11 +62,37 @@ The order client classifies an actual `ECONNRESET` separately from deadline expi
 
 The multi-process integration test persists this failure, reloads the artifact, launches a separate replay process with the recorded fault schedule, and requires the replayed outcome signature to match.
 
+## Implemented service-crash fault
+
+The current service-crash slice is deliberately narrower than a general crash scheduler. It is owned by the multi-process orchestrator, not by the in-service fault controller.
+
+For the supported case:
+
+1. the complete topology starts and `inventory` first passes its health check;
+2. Kestrel records a failure-injector event with `fault.kind=service_crash`, `target.service=inventory`, `schedule.phase=before_request`, the seed, trigger, and workload correlation ID;
+3. the orchestrator kills the real inventory OS process;
+4. it confirms the inventory health endpoint is unavailable;
+5. only then is the workload issued through the gateway.
+
+Because the process is already dead when `order` connects, the tested loopback/Unix environment produces a real refused TCP connection. The caller classifies `ECONNREFUSED` as HTTP 502, terminal service `inventory`, error code `inventory_connection_refused`.
+
+There is intentionally no `inventory/check` request span in the failing run: the request never entered the killed service. Crash localization therefore compares healthy and failing application evidence using the externally observed terminal service as an anchor; a healthy `inventory/check` span that is absent from the failing run is reported as `missing_span`. The localization path does not read the injector event to obtain the answer.
+
+The crash artifact is then loaded by a separate replay process. A fresh topology is started, the same pre-request process-kill schedule is applied, and replay succeeds only if the semantic outcome signature matches.
+
+Current limitations are explicit:
+
+- only target service `inventory` is supported;
+- only a pre-request crash with `trigger_on_match=1` is supported;
+- the in-service fault controller rejects service-crash specs because process lifecycle is orchestrator-owned;
+- the integration proof is Unix-oriented because it uses real child-process kill/lifecycle behavior;
+- this is not yet crash/restart sequencing, arbitrary mid-request process death, or Kubernetes pod termination replay.
+
 ## What the seed does not guarantee
 
 A seed does not make Linux scheduling, TCP behavior, GC, or arbitrary concurrency deterministic. It guarantees that Kestrel's own randomized injector decisions and trigger schedule can be reproduced. Replay success is determined by the resulting outcome signature, not by assuming bit-for-bit identical execution.
 
-For connection reset, the current proven environment is the Unix/Linux process topology used by CI and the demo architecture. This is not a claim that every operating system, proxy, service mesh, or Kubernetes network path will surface reset errors identically.
+For connection reset and service crash, the current proven environment is the Unix/Linux process topology used by CI and the demo architecture. This is not a claim that every operating system, proxy, service mesh, or Kubernetes network path will surface transport errors identically.
 
 ## Corpus policy
 

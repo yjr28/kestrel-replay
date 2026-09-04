@@ -14,7 +14,7 @@ Reissue recorded requests/events with equivalent input identity and configuratio
 
 Reapply a recorded failure schedule: target, trigger, seed, and fault parameters are used in a fresh execution.
 
-**Status:** implemented for the tested latency and connection-reset fault slices.
+**Status:** implemented for the tested latency, connection-reset, and orchestrated service-crash slices.
 
 ### Level C — message-order replay
 
@@ -52,10 +52,21 @@ The reset case records a `connection_reset` fault at `inventory/check`. The inve
 
 The integration test persists the original reset evidence and launches `kestrel-artifact-replay` as a separate process. That replay process receives only the artifact directory and a fresh `kestrel-node` binary path. Replay passes only when the fresh topology produces the same semantic outcome signature.
 
+## Current service-crash replay
+
+The crash case is currently an orchestrator-owned pre-request schedule for `inventory`. A fresh topology is first brought to a healthy state. Kestrel records the crash schedule in the collector, kills the real inventory child process, confirms the service is unavailable, and then issues the workload.
+
+In the tested Unix/Linux loopback topology, the order service observes a refused connection rather than an application response. The recorded signature is HTTP 502, terminal service `inventory`, and error code `inventory_connection_refused`.
+
+The persisted artifact is replayed by a separate process. The replay process starts another fresh topology, repeats the recorded pre-request inventory process kill, and compares the resulting outcome against the persisted signature. No live state from the original failing topology is required.
+
+The crash case also demonstrates a topology-level evidence difference: the healthy run contains an `inventory/check` span while the failing run does not because the process was dead before the request arrived. Localization can use the recorded terminal service as an external outcome anchor to report that missing application span without consulting the injector event.
+
 These cases prove narrow but real statements:
 
 - Kestrel can reproduce the tested timeout outcome by replaying a recorded latency failure schedule in the controlled topology.
 - Kestrel can reproduce the tested TCP-reset outcome by replaying a recorded connection-reset schedule in the Unix/Linux multi-process topology used by CI.
+- Kestrel can reproduce the tested pre-request inventory process-crash outcome by replaying a recorded process-kill schedule in a fresh Unix/Linux multi-process topology.
 
 They do **not** prove:
 
@@ -64,6 +75,7 @@ They do **not** prove:
 - identical generated trace/span IDs;
 - general reproduction of arbitrary network failures;
 - identical socket-error presentation across all operating systems or proxies;
+- arbitrary crash timing, crash/restart sequencing, or Kubernetes pod lifecycle replay;
 - deterministic replay across Kubernetes nodes.
 
 ## Future replay reports

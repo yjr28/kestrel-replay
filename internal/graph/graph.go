@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/yjr28/kestrel-replay/internal/model"
@@ -88,27 +89,46 @@ type Divergence struct {
 	Delta        time.Duration `json:"delta,omitempty"`
 }
 
+type divergenceKey struct {
+	service   string
+	operation string
+}
+
 // EarliestMeaningfulDivergence compares application spans while deliberately
 // ignoring explicit injector events. It first looks for a local latency anomaly
 // because propagated parent errors are usually consequences, then falls back to
-// the first status/topology change. This is intentionally conservative: it
-// returns evidence, not a claim of perfect causal certainty.
+// status/topology changes. This is intentionally conservative: it returns
+// evidence, not a claim of perfect causal certainty.
 func EarliestMeaningfulDivergence(healthy, failing []model.Event, latencyThreshold time.Duration) (Divergence, bool) {
-	type key struct{ service, operation string }
-	healthySpans := map[key]model.Event{}
+	return earliestMeaningfulDivergence(healthy, failing, latencyThreshold, "")
+}
+
+// EarliestMeaningfulDivergenceForTerminalService uses the externally observed
+// terminal service as an application-evidence anchor after checking for a local
+// latency anomaly. This is useful when a crash removes the target service span
+// entirely. It does not inspect failure-injector events.
+func EarliestMeaningfulDivergenceForTerminalService(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) (Divergence, bool) {
+	return earliestMeaningfulDivergence(healthy, failing, latencyThreshold, strings.TrimSpace(terminalService))
+}
+
+func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) (Divergence, bool) {
+	healthySpans := make(map[divergenceKey]model.Event)
+	failingSpans := make(map[divergenceKey]model.Event)
 	for _, e := range healthy {
 		if e.Kind == model.KindSpan && e.Source == model.SourceApplication {
-			healthySpans[key{e.Service, e.Operation}] = e
+			healthySpans[divergenceKey{service: e.Service, operation: e.Operation}] = e
+		}
+	}
+	for _, e := range failing {
+		if e.Kind == model.KindSpan && e.Source == model.SourceApplication {
+			failingSpans[divergenceKey{service: e.Service, operation: e.Operation}] = e
 		}
 	}
 
 	var bestLatency Divergence
 	var haveLatency bool
-	for _, e := range failing {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication {
-			continue
-		}
-		h, ok := healthySpans[key{e.Service, e.Operation}]
+	for key, e := range failingSpans {
+		h, ok := healthySpans[key]
 		if !ok {
 			continue
 		}
@@ -130,16 +150,43 @@ func EarliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		return bestLatency, true
 	}
 
+	if terminalService != "" {
+		for _, h := range model.Sorted(healthy) {
+			if h.Kind != model.KindSpan || h.Source != model.SourceApplication || h.Service != terminalService {
+				continue
+			}
+			key := divergenceKey{service: h.Service, operation: h.Operation}
+			f, ok := failingSpans[key]
+			if !ok {
+				return Divergence{Service: h.Service, Operation: h.Operation, Reason: "missing_span", HealthyValue: h.Status, FailingValue: "missing"}, true
+			}
+			if h.Status != f.Status {
+				return Divergence{Service: h.Service, Operation: h.Operation, Reason: "terminal_status_change", HealthyValue: h.Status, FailingValue: f.Status}, true
+			}
+		}
+	}
+
 	for _, e := range model.Sorted(failing) {
 		if e.Kind != model.KindSpan || e.Source != model.SourceApplication {
 			continue
 		}
-		h, ok := healthySpans[key{e.Service, e.Operation}]
+		key := divergenceKey{service: e.Service, operation: e.Operation}
+		h, ok := healthySpans[key]
 		if !ok {
 			return Divergence{Service: e.Service, Operation: e.Operation, Reason: "unexpected_span", FailingValue: e.Status}, true
 		}
 		if h.Status != e.Status {
 			return Divergence{Service: e.Service, Operation: e.Operation, Reason: "status_change", HealthyValue: h.Status, FailingValue: e.Status}, true
+		}
+	}
+
+	for _, h := range model.Sorted(healthy) {
+		if h.Kind != model.KindSpan || h.Source != model.SourceApplication {
+			continue
+		}
+		key := divergenceKey{service: h.Service, operation: h.Operation}
+		if _, ok := failingSpans[key]; !ok {
+			return Divergence{Service: h.Service, Operation: h.Operation, Reason: "missing_span", HealthyValue: h.Status, FailingValue: "missing"}, true
 		}
 	}
 	return Divergence{}, false

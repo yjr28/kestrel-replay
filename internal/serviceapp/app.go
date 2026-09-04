@@ -237,6 +237,9 @@ func dependencyTransportFailure(service string, err error) (string, int) {
 	if errors.Is(err, syscall.ECONNRESET) {
 		return service + "_connection_reset", http.StatusBadGateway
 	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return service + "_connection_refused", http.StatusBadGateway
+	}
 	return service + "_transport_error", http.StatusBadGateway
 }
 

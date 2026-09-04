@@ -2,7 +2,7 @@
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
-> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency and real TCP connection-reset injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay for both supported fault classes. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay, with guarded stale-writer recovery after abrupt process death.
+> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency, real TCP connection-reset, and orchestrated real-process crash injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay for all three supported fault slices. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay, with guarded stale-writer recovery after abrupt process death.
 
 Kestrel deliberately does **not** claim that arbitrary distributed executions can be made deterministic. Replay semantics are scoped and measured per supported fault class.
 
@@ -26,7 +26,7 @@ flowchart LR
     B --> AU[audit]
     B --> AN[analytics]
 
-    FI[fault controller] -. latency / TCP reset .-> I
+    FI[fault controller / orchestrator] -. latency / TCP reset / process crash .-> I
     G -. spans .-> COL[collector]
     A -. spans .-> COL
     AC -. spans .-> COL
@@ -77,7 +77,7 @@ The output also prints the artifact directory and event-log SHA-256. Re-run that
 make artifact-replay ARTIFACT=.kestrel/experiments/<experiment-id>
 ```
 
-Run the full multi-process fault/replay integration corpus, including the real TCP reset case, with:
+Run the full multi-process fault/replay integration corpus, including latency, real TCP reset, and real inventory-process crash cases, with:
 
 ```bash
 make integration
@@ -95,7 +95,15 @@ A seeded delay at `inventory/check` exceeds the order service's dependency timeo
 
 The inventory service hijacks the accepted HTTP connection and forces TCP reset semantics rather than returning an HTTP error. Kestrel records both the injector event and an errored inventory span with `transport.error=connection_reset`. The order service distinguishes an actual reset from a deadline expiry; the tested recorded/replayed outcome is HTTP 502 with terminal service `inventory` and error code `inventory_connection_reset`.
 
-Fault kinds that are declared for future work but not implemented are rejected during spec validation instead of silently becoming no-ops.
+### Service crash
+
+The current crash slice is orchestrator-owned. Kestrel starts a healthy topology, records a pre-request `service_crash` schedule, kills the actual inventory child process, confirms its health endpoint is unavailable, and then sends the workload. The order service observes a real refused TCP connection; the tested recorded/replayed outcome is HTTP 502 with terminal service `inventory` and error code `inventory_connection_refused`.
+
+Because inventory is dead before the request arrives, the failing run contains no `inventory/check` request span. The crash localization test compares healthy and persisted failing application evidence and reports the missing terminal-service span without reading the injector event for the answer. A separate artifact-replay process repeats the process-kill schedule against a fresh topology and must reproduce the recorded semantic outcome.
+
+The currently supported crash scope is intentionally narrow: `inventory`, pre-request, `trigger_on_match=1`, with Unix-oriented process-lifecycle testing. General mid-request crashes, restarts, and Kubernetes lifecycle replay are not claimed.
+
+Fault kinds that are declared for future work but not implemented are rejected during spec validation instead of silently becoming no-ops. Service crash is accepted by the experiment/orchestrator layer but rejected by the in-service fault controller because process lifecycle is orchestrator-owned.
 
 ## What is recorded today
 
@@ -107,7 +115,7 @@ The normalized event schema currently supports:
 - timestamp and status;
 - arbitrary typed-as-string attributes;
 - asynchronous message IDs and publish/consume actions;
-- failure-injector metadata including fault kind, target, seed, and injected parameters.
+- failure-injector metadata including fault kind, target, seed, schedule phase, and injected parameters.
 
 The schema is intentionally source-neutral so OpenTelemetry and eBPF events can enter the same causal pipeline later.
 
@@ -119,7 +127,7 @@ Abrupt writer death can leave a reservation and deterministic temporary director
 
 This is not PostgreSQL yet, and the checksums provide corruption detection rather than cryptographic authenticity. See [docs/EXPERIMENT_FORMAT.md](docs/EXPERIMENT_FORMAT.md).
 
-## Causal graph
+## Causal graph and divergence evidence
 
 Current edges include:
 
@@ -127,14 +135,17 @@ Current edges include:
 - message publish → message consume;
 - injected fault → affected service span when temporal evidence supports that link.
 
-A graph edge represents recorded evidence, not metaphysical certainty. Ambiguity and unsupported causality are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+For a pre-request crash there is no affected inventory span to connect to the injector node. The divergence layer therefore has a separate conservative path: after checking for local latency anomalies, it can use the externally observed terminal service from the outcome signature to distinguish a terminal-service status change from a healthy span that is entirely missing in the failing execution. It does not inspect the fault event to select that service.
+
+A graph edge or divergence result represents recorded evidence, not metaphysical certainty. Ambiguity and unsupported causality are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Replay semantics
 
-The current implementation supports **Level B — failure schedule replay** for two tested classes:
+The current implementation supports **Level B — failure schedule replay** for three tested classes:
 
 - latency: replay the recorded seed, target, trigger position, delay, and jitter configuration;
-- connection reset: replay the recorded target/trigger/seed and force the same dependency connection reset in a fresh topology.
+- connection reset: replay the recorded target/trigger/seed and force the same dependency connection reset in a fresh topology;
+- service crash: replay the recorded pre-request inventory process-kill schedule in a fresh topology.
 
 Replay success is semantic equality of the recorded and replayed outcome signatures, which include failure classification, HTTP status, terminal service, error code, and causal path. See [REPLAY_SEMANTICS.md](REPLAY_SEMANTICS.md).
 

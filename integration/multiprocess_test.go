@@ -76,9 +76,6 @@ func TestMultiProcessFailureReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Everything below is reconstructed from the persisted artifact. The replay
-	// itself runs in a separate process that only receives the artifact path and
-	// the node binary path.
 	recorded, err := experiment.Load(artifactDir)
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +174,99 @@ func TestMultiProcessConnectionResetReplay(t *testing.T) {
 	}
 	if report.ReplayedOutcome.HTTPStatus != 502 || report.ReplayedOutcome.ErrorCode != "inventory_connection_reset" {
 		t.Fatalf("unexpected reset replay outcome: %+v", report.ReplayedOutcome)
+	}
+}
+
+func TestMultiProcessServiceCrashReplay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("multi-process integration test")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("process-kill replay is currently Unix-only")
+	}
+
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	nodeBin := filepath.Join(binDir, "kestrel-node")
+	replayBin := filepath.Join(binDir, "kestrel-artifact-replay")
+	buildBinary(t, root, nodeBin, "./cmd/kestrel-node")
+	buildBinary(t, root, replayBin, "./cmd/kestrel-artifact-replay")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	spec := fault.Spec{Kind: fault.ServiceCrash, TargetService: "inventory", TriggerOnMatch: 1, Seed: 20260905}
+
+	healthy, err := orchestrator.RunScenario(ctx, nodeBin, nil, "req-crash-healthy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing, err := orchestrator.RunScenario(ctx, nodeBin, &spec, "req-crash-failing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failing.Outcome.HTTPStatus != 502 || failing.Outcome.TerminalService != "inventory" || failing.Outcome.ErrorCode != "inventory_connection_refused" {
+		t.Fatalf("unexpected crash outcome: %+v", failing.Outcome)
+	}
+
+	var sawCrashFault, sawInventorySpan bool
+	for _, event := range failing.Events {
+		if event.Kind == model.KindFault && event.Attributes["fault.kind"] == string(fault.ServiceCrash) && event.Attributes["target.service"] == "inventory" && event.Attributes["schedule.phase"] == "before_request" {
+			sawCrashFault = true
+		}
+		if event.Kind == model.KindSpan && event.Service == "inventory" {
+			sawInventorySpan = true
+		}
+	}
+	if !sawCrashFault {
+		t.Fatal("missing recorded service_crash injector evidence")
+	}
+	if sawInventorySpan {
+		t.Fatal("inventory emitted a request span even though the process was killed before the workload")
+	}
+
+	artifactDir, err := experiment.Save(filepath.Join(binDir, "experiments"), experiment.Record{
+		ExperimentID:     "seeded-inventory-crash",
+		Workload:         "single-create-order",
+		Topology:         []string{"gateway", "auth", "account", "order", "inventory", "pricing", "payment", "broker", "notification", "audit", "analytics", "collector"},
+		Fault:            &spec,
+		ExpectedBehavior: "inventory is killed before the request and order observes inventory_connection_refused",
+		ObservedBehavior: fmt.Sprintf("http=%d terminal=%s error=%s", failing.Outcome.HTTPStatus, failing.Outcome.TerminalService, failing.Outcome.ErrorCode),
+		Outcome:          failing.Outcome,
+		Events:           failing.Events,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorded, err := experiment.Load(artifactDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded.Events) < 5 {
+		t.Fatalf("unexpected crash evidence count: %d", len(recorded.Events))
+	}
+	failing = orchestrator.Result{}
+	report := runArtifactReplay(t, ctx, replayBin, artifactDir, nodeBin, "req-crash-replay")
+	if !report.ReplayMatch || !replay.Equivalent(recorded.Manifest.Outcome, report.ReplayedOutcome) {
+		t.Fatalf("crash artifact replay mismatch: %+v", report)
+	}
+	if report.ReplayedOutcome.HTTPStatus != 502 || report.ReplayedOutcome.TerminalService != "inventory" || report.ReplayedOutcome.ErrorCode != "inventory_connection_refused" {
+		t.Fatalf("unexpected crash replay outcome: %+v", report.ReplayedOutcome)
+	}
+
+	g, err := graph.Build(recorded.Events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RecordedGraphNodes != len(g.Nodes) || report.RecordedGraphEdges != len(g.Edges) {
+		t.Fatalf("crash graph mismatch local=%d/%d report=%d/%d", len(g.Nodes), len(g.Edges), report.RecordedGraphNodes, report.RecordedGraphEdges)
+	}
+	divergence, ok := graph.EarliestMeaningfulDivergenceForTerminalService(healthy.Events, recorded.Events, 20*time.Millisecond, recorded.Manifest.Outcome.TerminalService)
+	if !ok || divergence.Service != "inventory" || divergence.Operation != "check" || divergence.Reason != "missing_span" {
+		t.Fatalf("unexpected crash divergence ok=%t value=%+v", ok, divergence)
 	}
 }
 

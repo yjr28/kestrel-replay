@@ -41,7 +41,7 @@ Limitations at the end of Milestone 1 (some have since been removed in later mil
 
 **Status: in progress**
 
-Completed in phase 2A/2B:
+Completed in phase 2A/2B/2C:
 
 - W3C `traceparent` propagation across synchronous HTTP and asynchronous broker fan-out;
 - 10 application services run as separate OS processes in the integration/demo path;
@@ -49,8 +49,10 @@ Completed in phase 2A/2B:
 - bounded collector ingestion queue with explicit HTTP 429 overload behavior and dropped/invalid counters;
 - collector self-metrics and event query endpoint;
 - bounded telemetry exporter queue with sent/dropped/error counters;
+- bounded retry of transient collector-delivery failures plus pending-delivery accounting;
+- explicit service telemetry-drain barrier that waits for active handlers and exporter delivery before experiment evidence is judged;
 - separate broker process with bounded queue and delivery/error stats;
-- multi-process integration test that validates healthy → failing → replay, causal graph construction, and divergence localization across fresh topologies.
+- multi-process integration tests that validate healthy → failing → replay, causal graph construction, and divergence localization across fresh topologies.
 
 Still required before milestone completion:
 
@@ -76,7 +78,7 @@ Completed in phase 3A/3B/3C:
 - strict reload validation for schema, checksums, and event contents;
 - default demo persists the failing run before graph/replay analysis;
 - standalone artifact-replay CLI consumes only a persisted artifact plus a fresh node binary;
-- integration test proves a persisted multiprocess failure can be reloaded, graphed, and replayed by a separate process with no hidden failing-run memory;
+- integration tests prove persisted multiprocess failures can be reloaded, graphed, and replayed by a separate process with no hidden failing-run memory;
 - explicit artifact-recovery API/CLI that refuses young, live-owner, or cross-host reservations and removes only stale same-host dead-owner state;
 - recovery tests proving committed artifacts are never mutated by cleanup.
 
@@ -108,11 +110,16 @@ Completed:
 - real TCP connection-reset injection at `inventory/check` using a forced socket reset rather than an HTTP error;
 - distinct reset transport evidence and `inventory_connection_reset` outcome classification;
 - separate-process artifact replay test for the reset failure;
-- validation that rejects declared-but-unimplemented fault kinds instead of silently no-oping them.
+- orchestrator-owned real inventory-process crash after the topology has become healthy and before the workload request;
+- explicit persisted crash injector evidence plus verified target unavailability before workload execution;
+- real refused-connection outcome classification as HTTP 502 / `inventory_connection_refused` rather than a synthetic application error;
+- separate-process artifact replay that repeats the recorded pre-request process-kill schedule in a fresh topology;
+- terminal-service-anchored localization that identifies the missing healthy `inventory/check` span in the crash artifact without consulting injector events;
+- validation that rejects declared-but-unimplemented fault kinds instead of silently no-oping them, while keeping process-lifecycle faults out of the in-service controller.
 
 Still required:
 
-- service crash/restart;
+- service restart and broader crash timing beyond the current pre-request inventory-only slice;
 - RPC timeout as an explicit caller-side fault class;
 - duplicate/delayed async message;
 - controlled message reordering;
@@ -124,7 +131,18 @@ Exit gate: fixed corpus with automated replay pass/fail artifacts.
 
 ## Milestone 6 — causal divergence v2
 
-- graph/topology diffs;
+**Status: early improvements landed while building the fault corpus**
+
+Completed so far:
+
+- local latency-delta comparison across healthy/failing application spans;
+- status/topology fallback while ignoring explicit injector events;
+- terminal-service outcome anchor for distinguishing an affected-service status change from a missing healthy span;
+- real crash integration proof that localizes a missing `inventory/check` span from persisted application evidence.
+
+Still required:
+
+- graph/topology diffs beyond span-presence heuristics;
 - healthy-run distributions instead of a single healthy sample;
 - retry and message-order changes;
 - kernel anomaly features;

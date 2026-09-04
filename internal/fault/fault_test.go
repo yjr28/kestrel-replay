@@ -42,6 +42,20 @@ func TestConnectionResetSpecValidates(t *testing.T) {
 	}
 }
 
+func TestServiceCrashSpecValidatesButInServiceControllerRejectsIt(t *testing.T) {
+	spec := Spec{Kind: ServiceCrash, TargetService: "inventory", TriggerOnMatch: 1, Seed: 9}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("valid crash spec rejected: %v", err)
+	}
+	if _, err := NewController([]Spec{spec}); err == nil || !strings.Contains(err.Error(), "not supported by the in-service controller") {
+		t.Fatalf("expected controller rejection for orchestrator-owned crash, got %v", err)
+	}
+	spec.TriggerOnMatch = 2
+	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "trigger_on_match=1") {
+		t.Fatalf("expected unsupported crash trigger rejection, got %v", err)
+	}
+}
+
 func TestUnimplementedFaultKindRejected(t *testing.T) {
 	spec := Spec{Kind: PacketLoss, TargetService: "inventory", TriggerOnMatch: 1, Seed: 7}
 	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "not implemented") {

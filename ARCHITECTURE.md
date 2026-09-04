@@ -29,7 +29,7 @@ flowchart TB
     B --> AU[audit]
     B --> AN[analytics]
 
-    F[Seeded fault controller] --> I
+    F[Seeded fault controller / orchestrator] --> I
 
     G -. normalized events .-> C[collector process]
     A -. normalized events .-> C
@@ -53,11 +53,11 @@ flowchart TB
 - Each application service, broker, and collector is a separate OS process, but the demo still runs on one host over loopback TCP.
 - Trace propagation uses standards-compliant W3C `traceparent`, while span/event emission is a lightweight Kestrel implementation rather than the OpenTelemetry SDK.
 - The broker is a real separate network process with a bounded queue, but it is not durable and does not yet support controlled reordering/duplication faults.
-- Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters instead of blocking indefinitely.
+- Service exporters and collector ingestion are bounded; queue saturation is observable through drop/error counters instead of blocking indefinitely. Before evidence is judged, the multi-process harness uses an explicit active-handler/exporter drain barrier so request-local telemetry has reached the collector rather than relying on sleep timing.
 - The live collector store is in-memory, but completed experiments are committed to immutable versioned artifact directories with NDJSON events plus manifest/event SHA-256 checks. PostgreSQL indexing is not implemented yet.
-- The fault runtime currently accepts only the two classes it genuinely implements: latency and TCP connection reset. Declared future kinds are rejected at validation time rather than silently no-oping.
+- Three fault slices are currently implemented and replay-tested: latency, TCP connection reset, and an orchestrator-owned pre-request inventory service crash. Latency/reset execute inside the service fault controller; service crash is deliberately process-lifecycle logic in the orchestrator and is rejected by the in-service controller.
 - No kernel/eBPF evidence is collected yet.
-- Level-B replay is proven by the integration corpus for the tested latency/timeout and TCP-reset paths. The default terminal demo currently presents the latency path.
+- Level-B replay is proven by the integration corpus for the tested latency/timeout, TCP-reset, and pre-request inventory-crash paths. The default terminal demo currently presents the latency path.
 
 These are measured implementation boundaries, not claims about the target architecture.
 
@@ -71,7 +71,7 @@ The standalone collector exposes:
 - HTTP `429` overload behavior with `Retry-After`;
 - `/healthz`, `/v1/stats`, `/metrics`, and trace-filtered event retrieval.
 
-The service-side exporter separately tracks sent, dropped, error, and queued counts. The broker reports queued/in-flight/delivered/error counts. Completed experiment artifacts form the restart boundary for graph/replay analysis; see `docs/EXPERIMENT_FORMAT.md`.
+The service-side exporter separately tracks sent, dropped, error, queued, and pending delivery state. Transient collector-delivery failures receive bounded retries, and services expose a non-business telemetry flush barrier used by the integration harness. The broker reports queued/in-flight/delivered/error counts. Completed experiment artifacts form the restart boundary for graph/replay analysis; see `docs/EXPERIMENT_FORMAT.md`.
 
 ## Target architecture
 
@@ -147,6 +147,8 @@ Current graph edges are created only for explicit evidence:
 - exact message ID publish/consume match;
 - explicit fault target followed by an affected-service span.
 
+A pre-request service crash is an important boundary case: the killed service has no request span, so there is no affected-service node to attach a fault edge to. The fault event remains recorded evidence, but graph construction does not invent a synthetic request span simply to create an edge.
+
 Important limitations:
 
 - clocks can differ once services become separate processes/hosts;
@@ -159,13 +161,15 @@ Future inferred edges must carry confidence/provenance rather than being mixed s
 
 ## Divergence algorithm: current version
 
-The first implementation compares healthy and failing application spans by `(service, operation)`.
+The current implementation compares healthy and failing application spans by `(service, operation)` while deliberately ignoring explicit injector events during localization.
 
-1. It ignores explicit fault-injector events during localization so the answer is not trivially copied from the injector.
-2. It searches for large local duration differences above a configured threshold and ranks the strongest delta.
-3. If no latency anomaly exists, it falls back to topology/status changes.
+1. It first searches for large local duration differences above a configured threshold and ranks the strongest delta, because propagated parent errors are often consequences rather than the first useful local evidence.
+2. When an externally observed outcome identifies a terminal service, the detector can use that service as an application-evidence anchor. If the healthy terminal-service span is absent from the failing run, it reports `missing_span`; if the span exists but changes status, it reports `terminal_status_change`.
+3. It then falls back to generic unexpected-span, status-change, or missing-span topology differences.
 
-This is an evidence heuristic, not a final root-cause algorithm. The later version should operate over graph structure, retry/message-order changes, kernel anomalies, and a healthy-run distribution rather than a single reference execution.
+The terminal-service anchor comes from the machine-readable outcome signature, not from the fault-injector event. This allows the crash case to localize a missing `inventory/check` span without trivially copying the configured crash target.
+
+This remains an evidence heuristic, not a final root-cause algorithm. The later version should operate over graph structure, retry/message-order changes, kernel anomalies, and a healthy-run distribution rather than a single reference execution.
 
 ## Security boundary
 

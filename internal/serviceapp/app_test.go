@@ -96,6 +96,9 @@ func TestDependencyTransportFailureClassification(t *testing.T) {
 	if code, status := dependencyTransportFailure("inventory", syscall.ECONNRESET); code != "inventory_connection_reset" || status != http.StatusBadGateway {
 		t.Fatalf("reset classification=%s/%d", code, status)
 	}
+	if code, status := dependencyTransportFailure("inventory", syscall.ECONNREFUSED); code != "inventory_connection_refused" || status != http.StatusBadGateway {
+		t.Fatalf("refused classification=%s/%d", code, status)
+	}
 	if code, status := dependencyTransportFailure("inventory", errors.New("boom")); code != "inventory_transport_error" || status != http.StatusBadGateway {
 		t.Fatalf("generic classification=%s/%d", code, status)
 	}
