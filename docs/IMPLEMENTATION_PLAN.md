@@ -96,7 +96,7 @@ The v1 corpus exit gate is met: the fixed four-case corpus has automated pass/fa
 
 ## Milestone 6 — causal divergence v2
 
-**Status: early improvements landed while building the fault corpus**
+**Status: ranked single-baseline localization gate complete; distribution/topology features remain in progress**
 
 Completed so far:
 
@@ -105,7 +105,12 @@ Completed so far:
 - terminal-service outcome anchor for status change vs missing span;
 - real crash integration proof for missing `inventory/check`;
 - explicit one-to-many message graph evidence for duplicate async delivery;
-- divergence provenance via exact healthy/failing application event IDs plus explicit external terminal-service anchors where used.
+- divergence provenance via exact healthy/failing application event IDs plus explicit external terminal-service anchors where used;
+- deterministic ranked localization candidates with an auditable `heuristic_v1` confidence score whose additive basis is emitted with each candidate; the score is explicitly not a calibrated probability;
+- a checksum-verified healthy baseline artifact retained alongside each corpus run;
+- seeded localization truth stored outside the graph localizer so candidate construction cannot read injector truth;
+- v1 corpus top-k regression evaluation for latency, reset, and crash; duplicate-message is intentionally excluded until async topology divergence is ranked directly;
+- CI observation at commit `766db2c`: 4/4 replay regression cases passed and the three localization-eligible cases were 3/3 top-1 and 3/3 top-3. This is one retained regression observation, not a generalized localization benchmark.
 
 Still required:
 
@@ -113,8 +118,7 @@ Still required:
 - healthy-run distributions instead of one healthy sample;
 - retry and message-order changes;
 - kernel anomaly features;
-- confidence scoring for localization evidence;
-- top-k localization evaluation against seeded truth.
+- calibrated/empirical confidence only if enough evaluation data exists to justify it.
 
 ## Milestone 7 — deployment and performance engineering
 
