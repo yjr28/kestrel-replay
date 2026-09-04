@@ -21,6 +21,8 @@ make demo-inprocess
 make benchmark
 # replay a previously persisted incident
 make artifact-replay ARTIFACT=.kestrel/experiments/<id>
+# guarded cleanup of stale writer state after abrupt process death
+make artifact-recover EXPERIMENT=<id> STALE_AFTER=15m
 ```
 
 ## Engineering workflow
@@ -48,13 +50,14 @@ Current:
 - collector queue/overload and exporter tests;
 - W3C trace-context tests;
 - immutable experiment artifact integrity/schema/immutability tests;
+- guarded stale-writer recovery tests covering dead-owner cleanup, live-owner refusal, young-reservation refusal, and committed-artifact preservation;
 - multi-process healthy → persisted failure → separate-process artifact replay integration test across 10 service processes + broker + collector.
 
 Planned:
 
 - property tests for graph invariants and event normalization;
 - broker/message-order fault tests;
-- abrupt-crash stale-lock/temp-directory recovery tests;
+- retention and schema-migration tests for persisted experiments;
 - eBPF integration tests on Linux CI runners;
 - seeded corpus replay regression suite.
 

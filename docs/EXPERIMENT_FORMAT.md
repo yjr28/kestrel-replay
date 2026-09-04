@@ -4,12 +4,23 @@ Kestrel persists completed experiments as immutable directories so graph reconst
 
 ## Layout
 
+Committed artifact:
+
 ```text
 <experiment-id>/
 ├── manifest.json
 ├── events.ndjson
 └── checksums.json
 ```
+
+An in-progress write uses two sibling paths:
+
+```text
+<experiment-id>.lock
+<experiment-id>.tmp/
+```
+
+The reservation file contains the writer PID, hostname, reservation timestamp, and expected temporary-directory name. The temporary directory is deterministic per experiment ID, so recovery never has to guess which partial write belongs to which reservation.
 
 `manifest.json` is versioned with `schema_version`. Version 1 records the experiment identifier, creation time, workload name, topology, optional seeded fault specification, expected and observed behavior, the recorded outcome signature, the event-log filename/count, and the event-log SHA-256 digest.
 
@@ -22,16 +33,39 @@ Kestrel persists completed experiments as immutable directories so graph reconst
 `experiment.Save`:
 
 1. validates the complete record and fault specification;
-2. reserves the experiment ID with an exclusive writer lock;
-3. writes the event log into a temporary directory;
-4. flushes and `fsync`s the event log;
-5. writes and `fsync`s the manifest;
-6. writes and `fsync`s the checksum file;
-7. `fsync`s the temporary directory;
-8. atomically renames the temporary directory to the final experiment ID;
-9. `fsync`s the experiment root.
+2. reserves the experiment ID with an exclusive JSON writer reservation;
+3. refuses an existing committed directory or leftover deterministic temp directory;
+4. writes the event log into `<experiment-id>.tmp`;
+5. flushes and `fsync`s the event log;
+6. writes and `fsync`s the manifest;
+7. writes and `fsync`s the checksum file;
+8. `fsync`s the temporary directory;
+9. atomically renames the temporary directory to the final experiment ID;
+10. `fsync`s the experiment root;
+11. removes the writer reservation on normal return.
 
-Existing experiment IDs are never overwritten by the API. A failed write cleans its temporary directory during normal process execution. Abrupt process death can leave a stale temporary directory or reservation file; explicit crash-recovery cleanup is a remaining Milestone 3 task.
+Existing experiment IDs are never overwritten by the API. A failed write cleans its temporary directory during normal process execution.
+
+## Crash recovery
+
+Abrupt process death can leave `<experiment-id>.lock` and `<experiment-id>.tmp`. Recovery is explicit rather than automatic because deleting an active writer's state would violate the storage invariant.
+
+```bash
+make artifact-recover EXPERIMENT=<experiment-id>
+# optional threshold override
+make artifact-recover EXPERIMENT=<experiment-id> STALE_AFTER=30m
+```
+
+`experiment.Recover` follows conservative rules:
+
+- the caller must provide a positive staleness threshold;
+- a non-committed reservation younger than that threshold is refused;
+- a reservation owned by a live PID on the same host is refused even when old;
+- a reservation from another hostname is refused because process liveness cannot be proven locally;
+- only a stale reservation whose same-host owner is confirmed dead may have its lock/temp paths removed;
+- if the committed artifact directory already exists, only sibling lock/temp leftovers are removed; the committed directory is never mutated.
+
+Recovery returns a structured report stating exactly which auxiliary paths were removed.
 
 ## Load semantics
 

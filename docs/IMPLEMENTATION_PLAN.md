@@ -63,28 +63,30 @@ Partial exit gate achieved: `make demo` now runs the multi-process topology and 
 
 ## Milestone 3 — experiment persistence
 
-**Status: core restart/replay gate complete; indexing and crash recovery remain**
+**Status: core restart/replay and guarded stale-writer recovery complete; indexing/retention/migration remain**
 
-Completed in phase 3A/3B:
+Completed in phase 3A/3B/3C:
 
 - versioned immutable experiment manifest;
 - NDJSON event log chosen as the initial append-friendly portable event format;
 - separate checksum metadata with SHA-256 verification of manifest and event bytes;
 - path-safe experiment identifiers and same-ID writer exclusion;
+- deterministic `<experiment-id>.tmp` staging path and JSON writer reservation with PID/hostname/timestamp metadata;
 - atomic temp-directory → committed-directory publication;
 - strict reload validation for schema, checksums, and event contents;
 - default demo persists the failing run before graph/replay analysis;
 - standalone artifact-replay CLI consumes only a persisted artifact plus a fresh node binary;
-- integration test proves a persisted multiprocess failure can be reloaded, graphed, and replayed by a separate process with no hidden failing-run memory.
+- integration test proves a persisted multiprocess failure can be reloaded, graphed, and replayed by a separate process with no hidden failing-run memory;
+- explicit artifact-recovery API/CLI that refuses young, live-owner, or cross-host reservations and removes only stale same-host dead-owner state;
+- recovery tests proving committed artifacts are never mutated by cleanup.
 
 Still required:
 
 - PostgreSQL metadata/results index (artifact bytes remain the source evidence);
 - explicit retention/redaction configuration;
-- stale writer-lock/temp-directory recovery after abrupt process death;
 - migration/compatibility policy for future manifest/event schema versions.
 
-Exit gate: **achieved for the current latency-fault slice.** An experiment can be stopped, loaded from storage, graphed, and replayed without hidden in-memory state. PostgreSQL is deliberately not claimed as implemented.
+Exit gate: **achieved for the current latency-fault slice.** An experiment can be stopped, loaded from storage, graphed, and replayed without hidden in-memory state, and abandoned writer state can be recovered conservatively after abrupt process death. PostgreSQL is deliberately not claimed as implemented.
 
 ## Milestone 4 — Rust/eBPF evidence
 

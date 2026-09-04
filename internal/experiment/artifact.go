@@ -78,23 +78,25 @@ func Save(root string, record Record) (string, error) {
 	}
 	finalDir := filepath.Join(root, record.ExperimentID)
 	lockPath := finalDir + ".lock"
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
+	tmpDir := finalDir + ".tmp"
+	if err := reserveExperiment(lockPath, tmpDir); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return "", fmt.Errorf("experiment %q is being written", record.ExperimentID)
 		}
 		return "", fmt.Errorf("reserve experiment id: %w", err)
 	}
-	_ = lock.Close()
 	defer os.Remove(lockPath)
 	if _, err := os.Stat(finalDir); err == nil {
 		return "", fmt.Errorf("experiment %q already exists", record.ExperimentID)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("stat experiment destination: %w", err)
 	}
-
-	tmpDir, err := os.MkdirTemp(root, ".kestrel-tmp-")
-	if err != nil {
+	if _, err := os.Stat(tmpDir); err == nil {
+		return "", fmt.Errorf("experiment %q has a stale temporary directory; run recovery before saving", record.ExperimentID)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("stat experiment temporary directory: %w", err)
+	}
+	if err := os.Mkdir(tmpDir, 0o700); err != nil {
 		return "", fmt.Errorf("create experiment temp dir: %w", err)
 	}
 	committed := false

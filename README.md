@@ -2,7 +2,7 @@
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
-> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are now persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay.
+> **Status: active engineering project, not yet resume-ready.** The repository now contains a tested multi-process vertical slice: 10 service processes, a separate asynchronous broker, a standalone bounded collector, W3C `traceparent` propagation, normalized events, seeded latency fault injection, causal graph reconstruction, evidence-based divergence detection, and Level-B failure-schedule replay. OpenTelemetry SDK instrumentation, PostgreSQL metadata indexing, Rust/eBPF telemetry, containerized deployment, a broad fault corpus, and publishable performance benchmarks are still pending. Completed failures are persisted as versioned, checksum-verified experiment artifacts for restart-safe graphing and replay, with guarded stale-writer recovery after abrupt process death.
 
 Kestrel deliberately does **not** claim that arbitrary distributed executions can be made deterministic. Replay semantics are scoped and measured per supported fault class.
 
@@ -97,6 +97,8 @@ The schema is intentionally source-neutral so OpenTelemetry and eBPF events can 
 
 Completed experiments are stored as `manifest.json` + `events.ndjson` + `checksums.json`. The manifest is schema-versioned; both manifest and event bytes are SHA-256 checked on reload; experiment IDs are path-safe and immutable through the storage API. The multi-process integration test proves that a separate replay process can reconstruct the recorded graph and reproduce the saved outcome using only the artifact path and a fresh node binary.
 
+Abrupt writer death can leave a reservation and deterministic temporary directory. Cleanup is deliberately guarded rather than automatic: Kestrel requires a staleness threshold, same-host ownership, and a confirmed-dead PID before deleting an uncommitted writer's state. Use `make artifact-recover EXPERIMENT=<id>`; committed artifact directories are never mutated by recovery.
+
 This is not PostgreSQL yet, and the checksums provide corruption detection rather than cryptographic authenticity. See [docs/EXPERIMENT_FORMAT.md](docs/EXPERIMENT_FORMAT.md).
 
 ## Causal graph
@@ -124,6 +126,7 @@ make check      # test + vet
 make demo       # build/run the 12-process healthy/failure/replay demo
 make demo-inprocess # fast legacy in-process harness
 make artifact-replay ARTIFACT=.kestrel/experiments/<id>
+make artifact-recover EXPERIMENT=<id> # guarded cleanup of stale writer state
 make benchmark  # development microbenchmark only
 ```
 
@@ -144,7 +147,7 @@ The first slice records identifiers and metadata only; it does not record reques
 The living implementation sequence is tracked in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). The next major engineering slices are:
 
 - OpenTelemetry-native application instrumentation (the standalone collector is already implemented);
-- PostgreSQL metadata/results indexing and explicit stale-artifact recovery;
+- PostgreSQL metadata/results indexing plus retention and schema-migration policy;
 - Rust/eBPF network/process telemetry with a demonstrated incremental debugging benefit;
 - expanded seeded fault corpus and replay classes;
 - Docker Compose/Kubernetes deployment;
