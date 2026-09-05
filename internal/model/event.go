@@ -50,6 +50,11 @@ func (e Event) Validate() error {
 	if e.Timestamp.IsZero() {
 		return errors.New("event timestamp is required")
 	}
+	switch e.Source {
+	case SourceApplication, SourceKernel, SourceFault, SourceReplay:
+	default:
+		return fmt.Errorf("unsupported event source %q", e.Source)
+	}
 	switch e.Kind {
 	case KindSpan:
 		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.SpanID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {

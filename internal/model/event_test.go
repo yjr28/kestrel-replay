@@ -23,3 +23,10 @@ func TestEventValidateRejectsUnsupportedKind(t *testing.T) {
 		t.Fatal("expected unsupported event kind to fail validation")
 	}
 }
+
+func TestEventValidateRejectsUnsupportedSource(t *testing.T) {
+	e := Event{ID: "e1", Kind: KindNetwork, Source: Source("unknown"), Timestamp: time.Now()}
+	if err := e.Validate(); err == nil {
+		t.Fatal("expected unsupported event source to fail validation")
+	}
+}
