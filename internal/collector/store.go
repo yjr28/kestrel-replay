@@ -41,7 +41,7 @@ func canonicalizeEvidence(e model.Event) model.Event {
 		for key, value := range e.Attributes {
 			attrs[key] = value
 		}
-		for _, key := range []string{"message.id", "message.action", "fault.kind", "target.service", "target.operation"} {
+		for _, key := range []string{"topic", "message.id", "message.action", "fault.kind", "target.service", "target.operation"} {
 			if value, ok := attrs[key]; ok {
 				attrs[key] = strings.TrimSpace(value)
 			}
