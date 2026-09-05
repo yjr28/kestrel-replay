@@ -31,6 +31,22 @@ func TestControllerDeterministic(t *testing.T) {
 	}
 }
 
+func TestControllerNormalizesMatchingKeys(t *testing.T) {
+	spec := Spec{Kind: Latency, TargetService: " inventory ", Operation: " check\t", TriggerOnMatch: 1, Delay: time.Millisecond, Seed: 17}
+	controller, err := NewController([]Spec{spec})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decision := controller.Decide("\tinventory", "check ")
+	if !decision.Inject {
+		t.Fatal("formatting-only whitespace should not prevent a matching fault from triggering")
+	}
+	if decision.Spec != spec {
+		t.Fatalf("decision should preserve the configured spec: got %+v want %+v", decision.Spec, spec)
+	}
+}
+
 func TestConnectionResetSpecValidates(t *testing.T) {
 	spec := Spec{Kind: ConnectionReset, TargetService: "inventory", Operation: "check", TriggerOnMatch: 1, Seed: 7}
 	if err := spec.Validate(); err != nil {

@@ -115,8 +115,10 @@ func (c *Controller) Decide(service, operation string) Decision {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	service = strings.TrimSpace(service)
+	operation = strings.TrimSpace(operation)
 	for i, s := range c.specs {
-		if s.TargetService != service || (s.Operation != "" && s.Operation != operation) {
+		if strings.TrimSpace(s.TargetService) != service || (strings.TrimSpace(s.Operation) != "" && strings.TrimSpace(s.Operation) != operation) {
 			continue
 		}
 		c.matches[i]++
