@@ -127,9 +127,12 @@ func (p MessageTopologyProfile) Baselines() []MessageFlowBaseline {
 }
 
 func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Event) []MessageTopologyDivergence {
-	counts, eventIDs := messageFlowCounts(failing)
+	counts, eventIDs, ambiguous := messageFlowCountsWithAmbiguity(failing)
 	var divergences []MessageTopologyDivergence
 	for key, baseline := range profile.baselines {
+		if _, uncertain := ambiguous[key]; uncertain {
+			continue
+		}
 		failingCount := counts[key]
 		reason := ""
 		if failingCount > baseline.MaxCount {
@@ -149,6 +152,9 @@ func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Even
 		})
 	}
 	for key, failingCount := range counts {
+		if _, uncertain := ambiguous[key]; uncertain {
+			continue
+		}
 		if _, known := profile.baselines[key]; known {
 			continue
 		}
@@ -194,8 +200,18 @@ func cloneMessageFlowRunEvidence(in []MessageFlowRunEvidence) []MessageFlowRunEv
 }
 
 func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string) {
+	counts, ids, _ := messageFlowCountsWithAmbiguity(events)
+	return counts, ids
+}
+
+// messageFlowCountsWithAmbiguity withholds an entire observable flow key when
+// any otherwise keyable event for that flow reuses application-message event
+// identity. A reused event ID cannot establish an exact multiplicity, and its
+// exclusion must not be reinterpreted as evidence that the flow was absent.
+func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string, map[messageFlowKey]struct{}) {
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
+	ambiguous := make(map[messageFlowKey]struct{})
 	sortedEvents := model.Sorted(events)
 	eventIDCounts := make(map[string]int)
 	for _, event := range sortedEvents {
@@ -204,7 +220,7 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 		}
 	}
 	for _, event := range sortedEvents {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" || eventIDCounts[event.ID] != 1 {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" {
 			continue
 		}
 		topic := strings.TrimSpace(event.Attributes["topic"])
@@ -215,10 +231,19 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 			continue
 		}
 		key := messageFlowKey{topic: topic, action: action, service: service}
+		if eventIDCounts[event.ID] != 1 {
+			delete(counts, key)
+			delete(ids, key)
+			ambiguous[key] = struct{}{}
+			continue
+		}
+		if _, uncertain := ambiguous[key]; uncertain {
+			continue
+		}
 		counts[key]++
 		ids[key] = append(ids[key], event.ID)
 	}
-	return counts, ids
+	return counts, ids, ambiguous
 }
 
 func medianInt(sorted []int) int {

@@ -48,7 +48,7 @@ func TestMessageTopologyRequiresEventIdentityForEvidence(t *testing.T) {
 	}
 }
 
-func TestMessageTopologyExcludesDuplicateEventIdentityFromEvidence(t *testing.T) {
+func TestMessageTopologyAbstainsOnDuplicateEventIdentity(t *testing.T) {
 	now := time.Now().UTC()
 	profile, err := BuildMessageTopologyProfile([][]model.Event{
 		messageRun("h1", now, 1),
@@ -69,15 +69,34 @@ func TestMessageTopologyExcludesDuplicateEventIdentityFromEvidence(t *testing.T)
 	duplicate.Timestamp = duplicate.Timestamp.Add(time.Millisecond)
 	failing = append(failing, duplicate)
 
-	divergences := CompareMessageTopology(profile, failing)
-	if len(divergences) != 1 {
-		t.Fatalf("ambiguous duplicate identity must not count as topology evidence: %#v", divergences)
+	if divergences := CompareMessageTopology(profile, failing); len(divergences) != 0 {
+		t.Fatalf("ambiguous duplicate identity must not be reinterpreted as missing topology evidence: %#v", divergences)
 	}
-	divergence := divergences[0]
-	if divergence.Service != "analytics" || divergence.Action != "consume" || divergence.Reason != "count_below_healthy_range" || divergence.FailingCount != 0 {
-		t.Fatalf("unexpected divergence for duplicate event identity: %+v", divergence)
+}
+
+func TestMessageTopologyAbstainsWhenKeyedEventIDIsReusedByUnkeyedMessage(t *testing.T) {
+	now := time.Now().UTC()
+	profile, err := BuildMessageTopologyProfile([][]model.Event{
+		messageRun("h1", now, 1),
+		messageRun("h2", now.Add(time.Second), 1),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(divergence.FailingEventIDs) != 0 {
-		t.Fatalf("ambiguous duplicate identity must not be reported as exact provenance: %+v", divergence)
+
+	failing := messageRun("f", now.Add(2*time.Second), 1)
+	var analyticsID string
+	for i := range failing {
+		if failing[i].Service == "analytics" && failing[i].Attributes["message.action"] == "consume" {
+			analyticsID = failing[i].ID
+			break
+		}
+	}
+	unkeyed := messageEvent(analyticsID, "", "consume", now.Add(3*time.Second))
+	unkeyed.Attributes["topic"] = "   "
+	failing = append(failing, unkeyed)
+
+	if divergences := CompareMessageTopology(profile, failing); len(divergences) != 0 {
+		t.Fatalf("reused provenance must make the keyed flow ambiguous rather than missing: %#v", divergences)
 	}
 }
