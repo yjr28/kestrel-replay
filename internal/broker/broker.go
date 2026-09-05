@@ -115,7 +115,7 @@ func (b *Broker) Handler() http.Handler {
 			http.Error(w, "invalid envelope", http.StatusBadRequest)
 			return
 		}
-		if env.TraceID == "" || env.ParentSpanID == "" || env.RequestID == "" || env.MessageID == "" {
+		if strings.TrimSpace(env.TraceID) == "" || strings.TrimSpace(env.ParentSpanID) == "" || strings.TrimSpace(env.RequestID) == "" || strings.TrimSpace(env.MessageID) == "" {
 			http.Error(w, "missing envelope identifiers", http.StatusUnprocessableEntity)
 			return
 		}
