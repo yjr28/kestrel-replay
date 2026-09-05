@@ -42,6 +42,26 @@ func TestMessageDeliveryCanonicalizesGeneratedIdentities(t *testing.T) {
 	}
 }
 
+func TestMessageDeliveryRequiresPublishedMessageIdentity(t *testing.T) {
+	now := time.Now().UTC()
+	sig := MessageDelivery([]model.Event{
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "published", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "published", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "audit", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "unrelated", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "analytics", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "   ", "message.action": "consume"}},
+	}, "orders.completed")
+
+	if sig.PublishCount != 1 || sig.ConsumeCounts["notification"] != 1 {
+		t.Fatalf("expected correlated consume to remain visible: %+v", sig)
+	}
+	if _, ok := sig.ConsumeCounts["audit"]; ok {
+		t.Fatalf("unpublished message id must not contribute delivery evidence: %+v", sig)
+	}
+	if _, ok := sig.ConsumeCounts["analytics"]; ok {
+		t.Fatalf("blank message id must not contribute delivery evidence: %+v", sig)
+	}
+}
+
 func TestMessageDelayUsesCorrelatedPublishConsumeTiming(t *testing.T) {
 	now := time.Now().UTC()
 	events := []model.Event{

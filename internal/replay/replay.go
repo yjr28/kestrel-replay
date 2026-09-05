@@ -44,9 +44,10 @@ func Equivalent(a, b OutcomeSignature) bool {
 
 // MessageDeliverySignature intentionally ignores generated message/span IDs and
 // timing. It captures the observable asynchronous side-effect shape for one
-// topic: how many application publish events occurred and how many consumes
-// each service recorded. This lets replay distinguish a duplicated delivery
-// from an otherwise identical successful HTTP outcome.
+// topic: how many application publish events occurred and how many correlated
+// consumes each service recorded. This lets replay distinguish a duplicated
+// delivery from an otherwise identical successful HTTP outcome without letting
+// unrelated same-topic traffic satisfy the evidence gate.
 type MessageDeliverySignature struct {
 	Topic         string         `json:"topic"`
 	PublishCount  int            `json:"publish_count"`
@@ -56,16 +57,26 @@ type MessageDeliverySignature struct {
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
+	publishedMessageIDs := map[string]struct{}{}
 	for _, event := range events {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
 		}
-		switch strings.TrimSpace(event.Attributes["message.action"]) {
-		case "publish":
-			sig.PublishCount++
-		case "consume":
-			sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
+		sig.PublishCount++
+		messageID := strings.TrimSpace(event.Attributes["message.id"])
+		if messageID != "" {
+			publishedMessageIDs[messageID] = struct{}{}
 		}
+	}
+	for _, event := range events {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
+			continue
+		}
+		messageID := strings.TrimSpace(event.Attributes["message.id"])
+		if _, ok := publishedMessageIDs[messageID]; !ok || messageID == "" {
+			continue
+		}
+		sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
 	}
 	return sig
 }
