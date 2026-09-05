@@ -43,7 +43,7 @@ func TestEventValidateMessageActions(t *testing.T) {
 		},
 	}
 
-	for _, action := range []string{"publish", "consume"} {
+	for _, action := range []string{"publish", "consume", " publish ", "\tconsume\n"} {
 		e := base
 		e.Attributes = map[string]string{"message.id": "m1", "message.action": action}
 		if err := e.Validate(); err != nil {
