@@ -56,7 +56,7 @@ func (s Spec) Validate() error {
 		if s.Delay != 0 || s.JitterFraction != 0 {
 			return fmt.Errorf("service crash does not accept delay or jitter parameters")
 		}
-		if s.Operation != "" {
+		if strings.TrimSpace(s.Operation) != "" {
 			return fmt.Errorf("service crash is process-scoped and does not accept an operation")
 		}
 		if s.TriggerOnMatch != 1 {

@@ -76,6 +76,13 @@ func TestServiceCrashSpecValidatesButInServiceControllerRejectsIt(t *testing.T) 
 	}
 }
 
+func TestServiceCrashTreatsWhitespaceOperationAsAbsent(t *testing.T) {
+	spec := Spec{Kind: ServiceCrash, TargetService: "inventory", Operation: " \t\n", TriggerOnMatch: 1, Seed: 9}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("whitespace-only operation should be treated as absent for process-scoped crash: %v", err)
+	}
+}
+
 func TestDuplicateMessageSpecValidatesButInServiceControllerRejectsIt(t *testing.T) {
 	spec := Spec{Kind: DuplicateMessage, TargetService: "broker", Operation: "orders.completed", TriggerOnMatch: 1, Seed: 11}
 	if err := spec.Validate(); err != nil {
