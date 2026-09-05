@@ -64,16 +64,22 @@ func TestEventValidateFaultKinds(t *testing.T) {
 		Kind:      KindFault,
 		Source:    SourceFault,
 		Timestamp: time.Now(),
-		Attributes: map[string]string{
-			"target.service": "orders",
-		},
 	}
 
-	for _, kind := range []string{"latency", "connection_reset", "service_crash", "duplicate_message", "delayed_message", " latency ", "\tdelayed_message\n"} {
+	cases := []map[string]string{
+		{"target.service": "orders", "fault.kind": "latency"},
+		{"target.service": "orders", "fault.kind": "connection_reset"},
+		{"target.service": "orders", "fault.kind": "service_crash"},
+		{"target.service": "broker", "target.operation": "orders.completed", "fault.kind": "duplicate_message"},
+		{"target.service": "broker", "target.operation": "orders.completed", "fault.kind": "delayed_message"},
+		{"target.service": "orders", "fault.kind": " latency "},
+		{"target.service": "broker", "target.operation": " orders.completed ", "fault.kind": "\tdelayed_message\n"},
+	}
+	for _, attributes := range cases {
 		e := base
-		e.Attributes = map[string]string{"target.service": "orders", "fault.kind": kind}
+		e.Attributes = attributes
 		if err := e.Validate(); err != nil {
-			t.Fatalf("expected implemented fault event kind %q to validate: %v", kind, err)
+			t.Fatalf("expected implemented fault event kind %q to validate: %v", attributes["fault.kind"], err)
 		}
 	}
 
@@ -82,6 +88,25 @@ func TestEventValidateFaultKinds(t *testing.T) {
 		e.Attributes = map[string]string{"target.service": "orders", "fault.kind": kind}
 		if err := e.Validate(); err == nil {
 			t.Fatalf("expected unsupported fault event kind %q to fail validation", kind)
+		}
+	}
+}
+
+func TestEventValidateAsyncFaultRequiresTargetOperation(t *testing.T) {
+	for _, kind := range []string{"duplicate_message", "delayed_message"} {
+		e := Event{
+			ID:        "e1",
+			Kind:      KindFault,
+			Source:    SourceFault,
+			Timestamp: time.Now(),
+			Attributes: map[string]string{
+				"target.service":   "broker",
+				"target.operation": " \t ",
+				"fault.kind":       kind,
+			},
+		}
+		if err := e.Validate(); err == nil {
+			t.Fatalf("expected %s fault event without a target operation to fail validation", kind)
 		}
 	}
 }
