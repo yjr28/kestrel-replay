@@ -93,10 +93,15 @@ type MessageDelaySignature struct {
 	MinConsumeDelayMicros  int64  `json:"min_consume_delay_us"`
 }
 
+type publishEvidence struct {
+	timestamp time.Time
+	count     int
+}
+
 func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDelaySignature{Topic: topic}
-	publishes := map[string]time.Time{}
+	publishes := map[string]publishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
@@ -106,9 +111,12 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if messageID == "" {
 			continue
 		}
-		if current, ok := publishes[messageID]; !ok || event.Timestamp.Before(current) {
-			publishes[messageID] = event.Timestamp
+		current := publishes[messageID]
+		current.count++
+		if current.timestamp.IsZero() || event.Timestamp.Before(current.timestamp) {
+			current.timestamp = event.Timestamp
 		}
+		publishes[messageID] = current
 	}
 
 	var haveDelay bool
@@ -116,14 +124,14 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
-		publishedAt, ok := publishes[strings.TrimSpace(event.Attributes["message.id"])]
-		if !ok {
+		published, ok := publishes[strings.TrimSpace(event.Attributes["message.id"])]
+		if !ok || published.count != 1 {
 			continue
 		}
-		if event.Timestamp.Before(publishedAt) {
+		if event.Timestamp.Before(published.timestamp) {
 			continue
 		}
-		delay := event.Timestamp.Sub(publishedAt).Microseconds()
+		delay := event.Timestamp.Sub(published.timestamp).Microseconds()
 		sig.CorrelatedConsumeCount++
 		if !haveDelay || delay < sig.MinConsumeDelayMicros {
 			sig.MinConsumeDelayMicros = delay

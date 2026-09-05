@@ -73,3 +73,22 @@ func TestMessageDelayRequiresCorrelatedConsume(t *testing.T) {
 		t.Fatalf("unrelated consume must not satisfy delayed-delivery evidence: %+v", sig)
 	}
 }
+
+func TestMessageDelayWithholdsAmbiguousPublishCorrelation(t *testing.T) {
+	now := time.Now().UTC()
+	sig := MessageDelay([]model.Event{
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now.Add(10 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "consume"}},
+	}, "orders.completed")
+
+	if sig.PublishCount != 2 {
+		t.Fatalf("all observed publishes should remain visible in the signature: %+v", sig)
+	}
+	if sig.CorrelatedConsumeCount != 0 || sig.MinConsumeDelayMicros != 0 {
+		t.Fatalf("reused message id must not produce ambiguous delay evidence: %+v", sig)
+	}
+	if MeetsMinimumMessageDelay(sig, 100*time.Millisecond) {
+		t.Fatalf("ambiguous publish provenance must not satisfy delayed-delivery evidence: %+v", sig)
+	}
+}
