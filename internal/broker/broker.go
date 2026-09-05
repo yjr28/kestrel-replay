@@ -77,16 +77,20 @@ func NewWithFault(workers []string, capacity int, collectorURL string, spec *fau
 		default:
 			return nil, fmt.Errorf("broker fault kind %q is not supported", spec.Kind)
 		}
-		if spec.TargetService != "broker" {
+		targetService := strings.TrimSpace(spec.TargetService)
+		operation := strings.TrimSpace(spec.Operation)
+		if targetService != "broker" {
 			return nil, fmt.Errorf("broker async fault requires target service broker")
 		}
-		if spec.Operation != ordersCompletedOperation {
+		if operation != ordersCompletedOperation {
 			return nil, fmt.Errorf("broker async fault requires operation %s", ordersCompletedOperation)
 		}
 		if strings.TrimSpace(collectorURL) == "" {
 			return nil, fmt.Errorf("broker async fault requires collector URL")
 		}
 		v := *spec
+		v.TargetService = targetService
+		v.Operation = operation
 		copied = &v
 	}
 	b := &Broker{
