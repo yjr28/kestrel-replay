@@ -13,27 +13,27 @@ func TestValidateRejectsWhitespaceOnlyRequiredEvidenceFields(t *testing.T) {
 	}{
 		{
 			name: "span service",
-			event: Event{ID: "span-service", Kind: KindSpan, TraceID: "trace", SpanID: "span", Service: " \t ", Operation: "op", Timestamp: now},
+			event: Event{ID: "span-service", Kind: KindSpan, Source: SourceApplication, TraceID: "trace", SpanID: "span", Service: " \t ", Operation: "op", Timestamp: now},
 		},
 		{
 			name: "span operation",
-			event: Event{ID: "span-operation", Kind: KindSpan, TraceID: "trace", SpanID: "span", Service: "svc", Operation: " \n ", Timestamp: now},
+			event: Event{ID: "span-operation", Kind: KindSpan, Source: SourceApplication, TraceID: "trace", SpanID: "span", Service: "svc", Operation: " \n ", Timestamp: now},
 		},
 		{
 			name: "message id",
-			event: Event{ID: "message-id", Kind: KindMessage, TraceID: "trace", Timestamp: now, Attributes: map[string]string{"message.id": "   ", "message.action": "publish"}},
+			event: Event{ID: "message-id", Kind: KindMessage, Source: SourceApplication, TraceID: "trace", Timestamp: now, Attributes: map[string]string{"message.id": "   ", "message.action": "publish"}},
 		},
 		{
 			name: "message action",
-			event: Event{ID: "message-action", Kind: KindMessage, TraceID: "trace", Timestamp: now, Attributes: map[string]string{"message.id": "message-1", "message.action": "\t"}},
+			event: Event{ID: "message-action", Kind: KindMessage, Source: SourceApplication, TraceID: "trace", Timestamp: now, Attributes: map[string]string{"message.id": "message-1", "message.action": "\t"}},
 		},
 		{
 			name: "fault kind",
-			event: Event{ID: "fault-kind", Kind: KindFault, Timestamp: now, Attributes: map[string]string{"fault.kind": " ", "target.service": "svc"}},
+			event: Event{ID: "fault-kind", Kind: KindFault, Source: SourceFault, Timestamp: now, Attributes: map[string]string{"fault.kind": " ", "target.service": "svc"}},
 		},
 		{
 			name: "fault target service",
-			event: Event{ID: "fault-service", Kind: KindFault, Timestamp: now, Attributes: map[string]string{"fault.kind": "delay", "target.service": " \r\n"}},
+			event: Event{ID: "fault-service", Kind: KindFault, Source: SourceFault, Timestamp: now, Attributes: map[string]string{"fault.kind": "delay", "target.service": " \r\n"}},
 		},
 	}
 
