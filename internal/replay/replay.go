@@ -44,10 +44,11 @@ func Equivalent(a, b OutcomeSignature) bool {
 
 // MessageDeliverySignature intentionally ignores generated message/span IDs and
 // timing. It captures the observable asynchronous side-effect shape for one
-// topic: how many application publish events occurred and how many correlated
-// consumes each service recorded. This lets replay distinguish a duplicated
-// delivery from an otherwise identical successful HTTP outcome without letting
-// unrelated same-topic traffic satisfy the evidence gate.
+// topic: how many application publish events occurred and how many causally
+// correlated consumes each service recorded. This lets replay distinguish a
+// duplicated delivery from an otherwise identical successful HTTP outcome
+// without letting unrelated or temporally impossible same-topic traffic satisfy
+// the evidence gate.
 type MessageDeliverySignature struct {
 	Topic         string         `json:"topic"`
 	PublishCount  int            `json:"publish_count"`
@@ -57,23 +58,33 @@ type MessageDeliverySignature struct {
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
-	publishedMessageIDs := map[string]struct{}{}
+	publishedAt := map[string]time.Time{}
+	ambiguousPublishIDs := map[string]struct{}{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
 		}
 		sig.PublishCount++
 		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		if messageID != "" {
-			publishedMessageIDs[messageID] = struct{}{}
+		if messageID == "" {
+			continue
 		}
+		if _, exists := publishedAt[messageID]; exists {
+			ambiguousPublishIDs[messageID] = struct{}{}
+			continue
+		}
+		publishedAt[messageID] = event.Timestamp
 	}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
 		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		if _, ok := publishedMessageIDs[messageID]; !ok || messageID == "" {
+		publishTime, ok := publishedAt[messageID]
+		if !ok || messageID == "" {
+			continue
+		}
+		if _, ambiguous := ambiguousPublishIDs[messageID]; ambiguous || event.Timestamp.Before(publishTime) {
 			continue
 		}
 		sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
