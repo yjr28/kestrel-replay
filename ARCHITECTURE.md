@@ -144,10 +144,10 @@ The model favors a small stable envelope plus source-specific attributes over a 
 Current graph edges are created only for explicit evidence:
 
 - parent spans resolved by the same `trace_id` plus matching `parent_span_id`/`span_id` identity;
-- exact message ID publish/consume match;
+- exact message ID publish/consume match when that message ID names one publisher;
 - explicit fault target followed by an affected-service span when such a span exists.
 
-Duplicate `(trace_id, span_id)` identities are rejected rather than allowing one event to overwrite another as a parent target. Duplicate delivery preserves the original message ID, so one publisher can have multiple explicit consume edges; the tested duplicate incident produces six message edges. A pre-request crash has no inventory request span, so the graph does not invent a synthetic node merely to create a fault edge.
+Duplicate `(trace_id, span_id)` identities are rejected rather than allowing one event to overwrite another as a parent target. If multiple publish events reuse the same message ID, publisher provenance is ambiguous and the graph withholds the publish-to-consume edge instead of choosing one publisher. Duplicate delivery remains distinct: it preserves one publisher and the original message ID across multiple explicit consume events, so one publisher can have multiple consume edges; the tested duplicate incident produces six message edges. A pre-request crash has no inventory request span, so the graph does not invent a synthetic node merely to create a fault edge.
 
 Important limitations:
 
