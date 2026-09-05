@@ -38,6 +38,7 @@ func Build(events []model.Event) (*Graph, error) {
 	g := &Graph{Nodes: make(map[string]model.Event, len(events))}
 	spans := map[spanIdentity]string{}
 	publishers := map[string]string{}
+	ambiguousPublishers := map[string]struct{}{}
 	faultsByService := map[string][]string{}
 
 	for _, e := range model.Sorted(events) {
@@ -58,8 +59,13 @@ func Build(events []model.Event) (*Graph, error) {
 		}
 		if e.Kind == model.KindMessage && e.Attributes["message.action"] == "publish" {
 			messageID := e.Attributes["message.id"]
-			if existing, exists := publishers[messageID]; exists {
-				return nil, fmt.Errorf("duplicate message publisher identity message.id=%q in events %q and %q", messageID, existing, e.ID)
+			if _, ambiguous := ambiguousPublishers[messageID]; ambiguous {
+				continue
+			}
+			if _, exists := publishers[messageID]; exists {
+				delete(publishers, messageID)
+				ambiguousPublishers[messageID] = struct{}{}
+				continue
 			}
 			publishers[messageID] = e.ID
 		}
