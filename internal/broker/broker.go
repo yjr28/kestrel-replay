@@ -247,6 +247,7 @@ func (b *Broker) run() {
 				} else {
 					b.delivered.Add(1)
 				}
+			}
 		}
 		b.inflight.Add(-1)
 	}
