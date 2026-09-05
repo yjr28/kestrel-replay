@@ -42,8 +42,11 @@ func TestControllerNormalizesMatchingKeys(t *testing.T) {
 	if !decision.Inject {
 		t.Fatal("formatting-only whitespace should not prevent a matching fault from triggering")
 	}
-	if decision.Spec != spec {
-		t.Fatalf("decision should preserve the configured spec: got %+v want %+v", decision.Spec, spec)
+	if decision.Spec.TargetService != "inventory" || decision.Spec.Operation != "check" {
+		t.Fatalf("decision should expose canonical evidence keys: got %+v", decision.Spec)
+	}
+	if spec.TargetService != " inventory " || spec.Operation != " check\t" {
+		t.Fatalf("controller construction should not mutate caller-owned spec: got %+v", spec)
 	}
 }
 

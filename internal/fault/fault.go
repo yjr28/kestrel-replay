@@ -106,6 +106,8 @@ func NewController(specs []Spec) (*Controller, error) {
 		if s.Kind != Latency && s.Kind != ConnectionReset {
 			return nil, fmt.Errorf("fault %d: kind %q is not supported by the in-service controller", i, s.Kind)
 		}
+		c.specs[i].TargetService = strings.TrimSpace(s.TargetService)
+		c.specs[i].Operation = strings.TrimSpace(s.Operation)
 		c.rngs[i] = rand.New(rand.NewSource(s.Seed))
 	}
 	return c, nil
@@ -118,7 +120,7 @@ func (c *Controller) Decide(service, operation string) Decision {
 	service = strings.TrimSpace(service)
 	operation = strings.TrimSpace(operation)
 	for i, s := range c.specs {
-		if strings.TrimSpace(s.TargetService) != service || (strings.TrimSpace(s.Operation) != "" && strings.TrimSpace(s.Operation) != operation) {
+		if s.TargetService != service || (s.Operation != "" && s.Operation != operation) {
 			continue
 		}
 		c.matches[i]++
