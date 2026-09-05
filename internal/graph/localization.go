@@ -167,7 +167,7 @@ func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]
 		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" || eventIDCounts[e.ID] != 1 {
 			continue
 		}
-		key := divergenceKey{service: e.Service, operation: e.Operation}
+		key := divergenceKey{service: strings.TrimSpace(e.Service), operation: strings.TrimSpace(e.Operation)}
 		if _, alreadyAmbiguous := ambiguous[key]; alreadyAmbiguous {
 			continue
 		}
