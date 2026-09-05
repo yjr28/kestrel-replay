@@ -64,7 +64,7 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 				return HealthyProfile{}, fmt.Errorf("healthy run %d reuses application span event id %q", runIndex, event.ID)
 			}
 			seenEventIDs[event.ID] = struct{}{}
-			key := divergenceKey{service: event.Service, operation: event.Operation}
+			key := divergenceKey{service: strings.TrimSpace(event.Service), operation: strings.TrimSpace(event.Operation)}
 			if _, ok := seen[key]; ok {
 				return HealthyProfile{}, fmt.Errorf("healthy run %d contains duplicate application span %s/%s", runIndex, key.service, key.operation)
 			}
