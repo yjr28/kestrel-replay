@@ -53,3 +53,41 @@ func TestStoreCanonicalizesEvidenceIdentifiers(t *testing.T) {
 		t.Fatalf("caller-owned event was mutated: %+v", input)
 	}
 }
+
+func TestStoreSnapshotDoesNotExposeStoredAttributes(t *testing.T) {
+	store := &Store{}
+	input := model.Event{
+		ID:        "event-1",
+		Source:    model.SourceApplication,
+		Kind:      model.KindSpan,
+		TraceID:   "trace-a",
+		SpanID:    "span-a",
+		Service:   "inventory",
+		Operation: "check",
+		Timestamp: time.Now().UTC(),
+		Attributes: map[string]string{
+			"evidence.detail": "original",
+		},
+	}
+	if err := store.Add(input); err != nil {
+		t.Fatal(err)
+	}
+
+	first := store.Snapshot("trace-a")
+	if len(first) != 1 {
+		t.Fatalf("unexpected first snapshot: %+v", first)
+	}
+	first[0].Attributes["evidence.detail"] = "mutated"
+	first[0].Attributes["new"] = "reader-owned"
+
+	second := store.Snapshot("trace-a")
+	if len(second) != 1 {
+		t.Fatalf("unexpected second snapshot: %+v", second)
+	}
+	if second[0].Attributes["evidence.detail"] != "original" {
+		t.Fatalf("snapshot mutation changed stored evidence: %+v", second[0].Attributes)
+	}
+	if _, ok := second[0].Attributes["new"]; ok {
+		t.Fatalf("snapshot mutation added attribute to stored evidence: %+v", second[0].Attributes)
+	}
+}

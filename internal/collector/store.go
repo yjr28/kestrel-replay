@@ -51,6 +51,18 @@ func canonicalizeEvidence(e model.Event) model.Event {
 	return e
 }
 
+func cloneEvent(e model.Event) model.Event {
+	if e.Attributes == nil {
+		return e
+	}
+	attrs := make(map[string]string, len(e.Attributes))
+	for key, value := range e.Attributes {
+		attrs[key] = value
+	}
+	e.Attributes = attrs
+	return e
+}
+
 func (s *Store) Snapshot(traceID string) []model.Event {
 	traceID = strings.TrimSpace(traceID)
 	s.mu.RLock()
@@ -58,7 +70,7 @@ func (s *Store) Snapshot(traceID string) []model.Event {
 	out := make([]model.Event, 0, len(s.events))
 	for _, e := range s.events {
 		if traceID == "" || e.TraceID == traceID {
-			out = append(out, e)
+			out = append(out, cloneEvent(e))
 		}
 	}
 	return out
