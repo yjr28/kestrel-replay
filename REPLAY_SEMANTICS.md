@@ -47,7 +47,7 @@ An external HTTP outcome is insufficient for faults that alter asynchronous side
 - publish count;
 - consume count per service.
 
-Generated message/span IDs and timestamps are deliberately excluded so a fresh replay process can be compared semantically. `kestrel-artifact-replay` currently requires both external outcome equality and message-delivery-signature equality. Synchronous failing incidents naturally compare with zero `orders.completed` deliveries.
+Generated message/span IDs and timestamps are deliberately excluded from the signature so a fresh replay process can be compared semantically, but they still gate correlation internally. A consume contributes to delivery parity only when its nonblank `message.id` identifies exactly one observed publish on the target topic and the consume does not predate that publish. Duplicate publish identities are treated as ambiguous provenance and their consumes are withheld from the canonical delivery counts. `kestrel-artifact-replay` currently requires both external outcome equality and message-delivery-signature equality. Synchronous failing incidents naturally compare with zero `orders.completed` deliveries.
 
 ## Async message-delay evidence
 
