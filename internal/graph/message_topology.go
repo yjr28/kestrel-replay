@@ -207,13 +207,14 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" || eventIDCounts[event.ID] != 1 {
 			continue
 		}
-		topic := event.Attributes["topic"]
-		messageID := event.Attributes["message.id"]
-		action := event.Attributes["message.action"]
-		if strings.TrimSpace(topic) == "" || strings.TrimSpace(messageID) == "" || (action != "publish" && action != "consume") {
+		topic := strings.TrimSpace(event.Attributes["topic"])
+		messageID := strings.TrimSpace(event.Attributes["message.id"])
+		action := strings.TrimSpace(event.Attributes["message.action"])
+		service := strings.TrimSpace(event.Service)
+		if topic == "" || messageID == "" || service == "" || (action != "publish" && action != "consume") {
 			continue
 		}
-		key := messageFlowKey{topic: topic, action: action, service: event.Service}
+		key := messageFlowKey{topic: topic, action: action, service: service}
 		counts[key]++
 		ids[key] = append(ids[key], event.ID)
 	}
