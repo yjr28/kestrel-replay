@@ -119,6 +119,10 @@ func (b *Broker) Handler() http.Handler {
 			http.Error(w, "missing envelope identifiers", http.StatusUnprocessableEntity)
 			return
 		}
+		env.TraceID = strings.TrimSpace(env.TraceID)
+		env.ParentSpanID = strings.TrimSpace(env.ParentSpanID)
+		env.RequestID = strings.TrimSpace(env.RequestID)
+		env.MessageID = strings.TrimSpace(env.MessageID)
 		if b.closed.Load() {
 			http.Error(w, "broker closed", http.StatusServiceUnavailable)
 			return
@@ -243,7 +247,6 @@ func (b *Broker) run() {
 				} else {
 					b.delivered.Add(1)
 				}
-			}
 		}
 		b.inflight.Add(-1)
 	}
