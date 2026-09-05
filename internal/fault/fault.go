@@ -3,6 +3,7 @@ package fault
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,7 +33,7 @@ type Spec struct {
 }
 
 func (s Spec) Validate() error {
-	if s.TargetService == "" {
+	if strings.TrimSpace(s.TargetService) == "" {
 		return fmt.Errorf("target service is required")
 	}
 	if s.TriggerOnMatch < 1 {
@@ -64,7 +65,7 @@ func (s Spec) Validate() error {
 		if s.Delay != 0 || s.JitterFraction != 0 {
 			return fmt.Errorf("duplicate message does not accept delay or jitter parameters")
 		}
-		if s.Operation == "" {
+		if strings.TrimSpace(s.Operation) == "" {
 			return fmt.Errorf("duplicate message requires a target operation/topic")
 		}
 	case DelayedMessage:
@@ -74,7 +75,7 @@ func (s Spec) Validate() error {
 		if s.JitterFraction != 0 {
 			return fmt.Errorf("delayed message does not yet accept jitter")
 		}
-		if s.Operation == "" {
+		if strings.TrimSpace(s.Operation) == "" {
 			return fmt.Errorf("delayed message requires a target operation/topic")
 		}
 	default:

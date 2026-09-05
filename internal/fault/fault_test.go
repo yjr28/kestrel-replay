@@ -100,6 +100,34 @@ func TestDelayedMessageSpecValidatesButInServiceControllerRejectsIt(t *testing.T
 	}
 }
 
+func TestSpecRejectsWhitespaceOnlyRequiredFields(t *testing.T) {
+	tests := []struct {
+		name string
+		spec Spec
+	}{
+		{
+			name: "target service",
+			spec: Spec{Kind: ConnectionReset, TargetService: "   ", Operation: "check", TriggerOnMatch: 1},
+		},
+		{
+			name: "duplicate operation",
+			spec: Spec{Kind: DuplicateMessage, TargetService: "broker", Operation: "\t", TriggerOnMatch: 1},
+		},
+		{
+			name: "delayed operation",
+			spec: Spec{Kind: DelayedMessage, TargetService: "broker", Operation: "\n", TriggerOnMatch: 1, Delay: time.Millisecond},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.spec.Validate(); err == nil {
+				t.Fatal("expected whitespace-only required field to fail validation")
+			}
+		})
+	}
+}
+
 func TestUnimplementedFaultKindRejected(t *testing.T) {
 	spec := Spec{Kind: PacketLoss, TargetService: "inventory", TriggerOnMatch: 1, Seed: 7}
 	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "not implemented") {
