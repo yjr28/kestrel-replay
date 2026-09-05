@@ -70,8 +70,14 @@ func (e Event) Validate() error {
 			return fmt.Errorf("unsupported message action %q", e.Attributes["message.action"])
 		}
 	case KindFault:
-		if strings.TrimSpace(e.Attributes["fault.kind"]) == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
+		faultKind := strings.TrimSpace(e.Attributes["fault.kind"])
+		if faultKind == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
 			return errors.New("fault events require fault.kind and target.service")
+		}
+		switch faultKind {
+		case "latency", "connection_reset", "service_crash", "duplicate_message", "delayed_message":
+		default:
+			return fmt.Errorf("unsupported fault event kind %q", e.Attributes["fault.kind"])
 		}
 	case KindNetwork, KindProcess:
 		// These event kinds currently have no kind-specific required fields.
