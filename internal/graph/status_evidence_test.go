@@ -39,3 +39,19 @@ func TestRankDivergencesRequiresNonblankStatusEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestRankDivergencesNormalizesStatusWhitespace(t *testing.T) {
+	now := time.Now().UTC()
+	healthy := []model.Event{{
+		ID: "h", Source: model.SourceApplication, Kind: model.KindSpan,
+		Service: "inventory", Operation: "check", Timestamp: now, Status: "  ok\t",
+	}}
+	failing := []model.Event{{
+		ID: "f", Source: model.SourceApplication, Kind: model.KindSpan,
+		Service: "inventory", Operation: "check", Timestamp: now, Status: "ok",
+	}}
+
+	if got := RankDivergences(healthy, failing, time.Second, "inventory"); len(got) != 0 {
+		t.Fatalf("status whitespace manufactured divergence evidence: %#v", got)
+	}
+}
