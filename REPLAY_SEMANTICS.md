@@ -14,13 +14,13 @@ Reissue recorded requests/events with equivalent input identity and configuratio
 
 Reapply a recorded failure schedule: target, trigger, seed, and fault parameters are used in a fresh execution.
 
-**Status:** implemented for the tested latency, connection-reset, orchestrated service-crash, and broker duplicate-message slices.
+**Status:** implemented for the tested latency, connection-reset, orchestrated service-crash, broker duplicate-message, and broker delayed-message slices.
 
 ### Level C — message-order replay
 
 Control asynchronous delivery so recorded relative ordering can be reproduced for supported message paths.
 
-**Status:** not yet implemented. Duplicate delivery does not by itself claim ordering control.
+**Status:** not yet implemented. Duplicate or delayed delivery does not by itself claim ordering control.
 
 ### Level D — selected deterministic execution replay
 
@@ -49,6 +49,12 @@ An external HTTP outcome is insufficient for faults that alter asynchronous side
 
 Generated message/span IDs and timestamps are deliberately excluded so a fresh replay process can be compared semantically. `kestrel-artifact-replay` currently requires both external outcome equality and message-delivery-signature equality. Synchronous failing incidents naturally compare with zero `orders.completed` deliveries.
 
+## Async message-delay evidence
+
+For the implemented delayed-message slice, matching HTTP outcome and delivery multiplicity are still insufficient. Kestrel correlates application publish and consume evidence by `message.id`, then derives the minimum observed publish-to-consume delay for the target topic. Both the recorded incident and the fresh replay must meet the configured positive delay threshold.
+
+Delay comparison is deliberately threshold-based rather than exact wall-clock equality. Correlation is withheld when a consume predates its publish or when the same message ID has multiple observed publish events, because those records do not provide unambiguous publish provenance. This is evidence gating for the tested broker-delay slice, not a claim of deterministic queue timing or controlled message ordering.
+
 ## Current latency replay
 
 The latency case records/configures a fault at `inventory/check`, persists the failure, then creates a fresh system from the recorded artifact. The tested signature is HTTP 504, terminal service `inventory`, error code `inventory_timeout`.
@@ -71,14 +77,21 @@ The synchronous request remains successful (HTTP 201), so a healthy run would ha
 
 A separate `kestrel-artifact-replay` process reconstructs the recorded evidence, starts a fresh topology, reapplies the broker schedule, and requires both outcome and async-delivery parity. This is Level-B duplicate-delivery schedule replay; it is **not** yet Level-C message-order replay.
 
+## Current delayed-message replay
+
+The delayed case also targets `broker/orders.completed`. The broker records explicit delayed-message injector evidence before applying the configured positive delay, while preserving one delivery per notification, audit, and analytics worker.
+
+Artifact replay requires external-outcome equality, message-delivery-signature equality, and minimum-delay evidence in both the recorded incident and the fresh replay. Exact timestamps are not compared, delayed-message jitter remains outside the implemented replay semantics, and this slice does not claim Level-C ordering control.
+
 These cases prove narrow but real statements:
 
 - Kestrel can reproduce the tested timeout outcome by replaying a recorded latency schedule.
 - Kestrel can reproduce the tested TCP-reset outcome by replaying a recorded reset schedule.
 - Kestrel can reproduce the tested pre-request inventory crash outcome by replaying a recorded process-kill schedule.
 - Kestrel can reproduce the tested duplicate async fan-out by replaying a recorded broker duplicate schedule and matching canonical per-consumer delivery counts.
+- Kestrel can reproduce the tested delayed async fan-out by replaying a recorded broker delay schedule and requiring the configured minimum delay in both recorded and replayed evidence.
 
-They do **not** prove deterministic instruction scheduling, identical timing/IDs, arbitrary network-failure replay, arbitrary process lifecycle replay, controlled async ordering, or deterministic replay across Kubernetes nodes.
+They do **not** prove deterministic instruction scheduling, identical timing/IDs, arbitrary network-failure replay, arbitrary process lifecycle replay, controlled async ordering, delayed-message jitter replay, or deterministic replay across Kubernetes nodes.
 
 ## Future replay reports
 
