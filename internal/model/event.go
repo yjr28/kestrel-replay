@@ -52,15 +52,15 @@ func (e Event) Validate() error {
 	}
 	switch e.Kind {
 	case KindSpan:
-		if e.TraceID == "" || e.SpanID == "" || e.Service == "" || e.Operation == "" {
+		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.SpanID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
 			return errors.New("span events require trace_id, span_id, service, and operation")
 		}
 	case KindMessage:
-		if e.TraceID == "" || e.Attributes["message.id"] == "" || e.Attributes["message.action"] == "" {
+		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.Attributes["message.id"]) == "" || strings.TrimSpace(e.Attributes["message.action"]) == "" {
 			return errors.New("message events require trace_id, message.id, and message.action")
 		}
 	case KindFault:
-		if e.Attributes["fault.kind"] == "" || e.Attributes["target.service"] == "" {
+		if strings.TrimSpace(e.Attributes["fault.kind"]) == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
 			return errors.New("fault events require fault.kind and target.service")
 		}
 	}
