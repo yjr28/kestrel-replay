@@ -64,6 +64,11 @@ func (e Event) Validate() error {
 		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.Attributes["message.id"]) == "" || strings.TrimSpace(e.Attributes["message.action"]) == "" {
 			return errors.New("message events require trace_id, message.id, and message.action")
 		}
+		switch e.Attributes["message.action"] {
+		case "publish", "consume":
+		default:
+			return fmt.Errorf("unsupported message action %q", e.Attributes["message.action"])
+		}
 	case KindFault:
 		if strings.TrimSpace(e.Attributes["fault.kind"]) == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
 			return errors.New("fault events require fault.kind and target.service")

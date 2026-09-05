@@ -31,6 +31,33 @@ func TestEventValidateRejectsUnsupportedSource(t *testing.T) {
 	}
 }
 
+func TestEventValidateMessageActions(t *testing.T) {
+	base := Event{
+		ID:        "e1",
+		Kind:      KindMessage,
+		Source:    SourceApplication,
+		TraceID:   "trace",
+		Timestamp: time.Now(),
+		Attributes: map[string]string{
+			"message.id": "m1",
+		},
+	}
+
+	for _, action := range []string{"publish", "consume"} {
+		e := base
+		e.Attributes = map[string]string{"message.id": "m1", "message.action": action}
+		if err := e.Validate(); err != nil {
+			t.Fatalf("expected supported message action %q to validate: %v", action, err)
+		}
+	}
+
+	e := base
+	e.Attributes = map[string]string{"message.id": "m1", "message.action": "ack"}
+	if err := e.Validate(); err == nil {
+		t.Fatal("expected unsupported message action to fail validation")
+	}
+}
+
 func TestEventCanonicalKeyNormalizesFormattingWhitespace(t *testing.T) {
 	base := Event{Kind: KindSpan, Service: "order", Operation: "create", Status: "error"}
 	formatted := Event{Kind: KindSpan, Service: " order ", Operation: "\tcreate\n", Status: " error "}
