@@ -120,6 +120,9 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if !ok {
 			continue
 		}
+		if event.Timestamp.Before(publishedAt) {
+			continue
+		}
 		delay := event.Timestamp.Sub(publishedAt).Microseconds()
 		sig.CorrelatedConsumeCount++
 		if !haveDelay || delay < sig.MinConsumeDelayMicros {
