@@ -40,9 +40,12 @@ type MessageFlowBaseline struct {
 // MessageTopologyProfile describes observed publish/consume multiplicity across
 // healthy runs. Missing events in a run contribute a count of zero so optional
 // flows remain represented by a wider healthy envelope instead of disappearing.
+// Keys whose multiplicity is ambiguous in any healthy run are remembered as
+// observed but are withheld from baseline comparison.
 type MessageTopologyProfile struct {
 	RunCount  int
 	baselines map[messageFlowKey]MessageFlowBaseline
+	observed  map[messageFlowKey]struct{}
 }
 
 // MessageTopologyDivergence reports a count outside the empirical healthy
@@ -68,21 +71,42 @@ func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, 
 	}
 	perRunCounts := make([]map[messageFlowKey]int, 0, len(runs))
 	perRunEventIDs := make([]map[messageFlowKey][]string, 0, len(runs))
+	perRunAmbiguous := make([]map[messageFlowKey]struct{}, 0, len(runs))
 	allKeys := make(map[messageFlowKey]struct{})
+	observed := make(map[messageFlowKey]struct{})
 	for _, run := range runs {
-		counts, eventIDs := messageFlowCounts(run)
+		counts, eventIDs, ambiguous := messageFlowCountsWithAmbiguity(run)
 		perRunCounts = append(perRunCounts, counts)
 		perRunEventIDs = append(perRunEventIDs, eventIDs)
+		perRunAmbiguous = append(perRunAmbiguous, ambiguous)
 		for key := range counts {
 			allKeys[key] = struct{}{}
+			observed[key] = struct{}{}
+		}
+		for key := range ambiguous {
+			allKeys[key] = struct{}{}
+			observed[key] = struct{}{}
 		}
 	}
 	if len(allKeys) == 0 {
 		return MessageTopologyProfile{}, fmt.Errorf("healthy runs contain no application message flows")
 	}
 
-	profile := MessageTopologyProfile{RunCount: len(runs), baselines: make(map[messageFlowKey]MessageFlowBaseline, len(allKeys))}
+	profile := MessageTopologyProfile{
+		RunCount: len(runs), baselines: make(map[messageFlowKey]MessageFlowBaseline, len(allKeys)), observed: observed,
+	}
 	for key := range allKeys {
+		uncertain := false
+		for runIndex := range runs {
+			if _, ambiguous := perRunAmbiguous[runIndex][key]; ambiguous {
+				uncertain = true
+				break
+			}
+		}
+		if uncertain {
+			continue
+		}
+
 		values := make([]int, 0, len(runs))
 		healthyRuns := make([]MessageFlowRunEvidence, 0, len(runs))
 		for runIndex, counts := range perRunCounts {
@@ -104,6 +128,9 @@ func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, 
 		}
 		baseline.Stable = baseline.MinCount == baseline.MaxCount
 		profile.baselines[key] = baseline
+	}
+	if len(profile.baselines) == 0 {
+		return MessageTopologyProfile{}, fmt.Errorf("healthy profile has no unambiguous application message flows")
 	}
 	return profile, nil
 }
@@ -156,6 +183,9 @@ func CompareMessageTopology(profile MessageTopologyProfile, failing []model.Even
 			continue
 		}
 		if _, known := profile.baselines[key]; known {
+			continue
+		}
+		if _, observedHealthy := profile.observed[key]; observedHealthy {
 			continue
 		}
 		divergences = append(divergences, MessageTopologyDivergence{
