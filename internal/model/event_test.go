@@ -30,3 +30,12 @@ func TestEventValidateRejectsUnsupportedSource(t *testing.T) {
 		t.Fatal("expected unsupported event source to fail validation")
 	}
 }
+
+func TestEventCanonicalKeyNormalizesFormattingWhitespace(t *testing.T) {
+	base := Event{Kind: KindSpan, Service: "order", Operation: "create", Status: "error"}
+	formatted := Event{Kind: KindSpan, Service: " order ", Operation: "\tcreate\n", Status: " error "}
+
+	if got, want := formatted.CanonicalKey(), base.CanonicalKey(); got != want {
+		t.Fatalf("expected formatting-only whitespace to preserve canonical identity: got %q want %q", got, want)
+	}
+}
