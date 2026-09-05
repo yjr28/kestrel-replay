@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/yjr28/kestrel-replay/internal/model"
@@ -53,16 +54,17 @@ type MessageDeliverySignature struct {
 }
 
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
+	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
 	for _, event := range events {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.Attributes["topic"] != topic {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic {
 			continue
 		}
-		switch event.Attributes["message.action"] {
+		switch strings.TrimSpace(event.Attributes["message.action"]) {
 		case "publish":
 			sig.PublishCount++
 		case "consume":
-			sig.ConsumeCounts[event.Service]++
+			sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
 		}
 	}
 	return sig
@@ -92,14 +94,15 @@ type MessageDelaySignature struct {
 }
 
 func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
+	topic = strings.TrimSpace(topic)
 	sig := MessageDelaySignature{Topic: topic}
 	publishes := map[string]time.Time{}
 	for _, event := range events {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.Attributes["topic"] != topic || event.Attributes["message.action"] != "publish" {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
 		}
 		sig.PublishCount++
-		messageID := event.Attributes["message.id"]
+		messageID := strings.TrimSpace(event.Attributes["message.id"])
 		if messageID == "" {
 			continue
 		}
@@ -110,10 +113,10 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 
 	var haveDelay bool
 	for _, event := range events {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || event.Attributes["topic"] != topic || event.Attributes["message.action"] != "consume" {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
-		publishedAt, ok := publishes[event.Attributes["message.id"]]
+		publishedAt, ok := publishes[strings.TrimSpace(event.Attributes["message.id"])]
 		if !ok {
 			continue
 		}
