@@ -85,8 +85,8 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 		for _, sample := range samples {
 			baseline.HealthyEventIDs = append(baseline.HealthyEventIDs, sample.event.ID)
 		}
-		baseline.Status = samples[0].event.Status
-		baseline.StatusStable = strings.TrimSpace(baseline.Status) != ""
+		baseline.Status = strings.TrimSpace(samples[0].event.Status)
+		baseline.StatusStable = baseline.Status != ""
 		if !baseline.StatusStable {
 			baseline.Status = ""
 		}
@@ -94,7 +94,8 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 			if !baseline.StatusStable {
 				break
 			}
-			if strings.TrimSpace(sample.event.Status) == "" || sample.event.Status != baseline.Status {
+			sampleStatus := strings.TrimSpace(sample.event.Status)
+			if sampleStatus == "" || sampleStatus != baseline.Status {
 				baseline.StatusStable = false
 				baseline.Status = ""
 				break
@@ -182,14 +183,15 @@ func RankDivergencesAgainstProfile(profile HealthyProfile, failing []model.Event
 			continue
 		}
 
-		if baseline.StatusStable && strings.TrimSpace(failingEvent.Status) != "" && baseline.Status != failingEvent.Status {
+		failingStatus := strings.TrimSpace(failingEvent.Status)
+		if baseline.StatusStable && failingStatus != "" && baseline.Status != failingStatus {
 			reason := "status_change"
 			if terminalService != "" && key.service == terminalService {
 				reason = "terminal_status_change"
 			}
 			candidate := LocalizationCandidate{Divergence: Divergence{
 				Service: key.service, Operation: key.operation, Reason: reason,
-				HealthyValue: baseline.Status, FailingValue: failingEvent.Status,
+				HealthyValue: baseline.Status, FailingValue: failingStatus,
 				HealthyEventID: baseline.RepresentativeEventID, FailingEventID: failingEvent.ID,
 			}}
 			scoreCandidate(&candidate, terminalService, minimumLatencyThreshold)
