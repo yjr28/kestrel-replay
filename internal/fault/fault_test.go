@@ -1,6 +1,7 @@
 package fault
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +145,15 @@ func TestSpecRejectsWhitespaceOnlyRequiredFields(t *testing.T) {
 				t.Fatal("expected whitespace-only required field to fail validation")
 			}
 		})
+	}
+}
+
+func TestSpecRejectsNonFiniteJitterFraction(t *testing.T) {
+	for _, jitter := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		spec := Spec{Kind: Latency, TargetService: "inventory", TriggerOnMatch: 1, Delay: time.Millisecond, JitterFraction: jitter}
+		if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "must be finite") {
+			t.Fatalf("expected non-finite jitter %v to fail validation, got %v", jitter, err)
+		}
 	}
 }
 

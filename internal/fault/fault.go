@@ -2,6 +2,7 @@ package fault
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"strings"
 	"sync"
@@ -39,8 +40,8 @@ func (s Spec) Validate() error {
 	if s.TriggerOnMatch < 1 {
 		return fmt.Errorf("trigger_on_match must be >= 1")
 	}
-	if s.JitterFraction < 0 || s.JitterFraction > 1 {
-		return fmt.Errorf("jitter_fraction must be between 0 and 1")
+	if math.IsNaN(s.JitterFraction) || math.IsInf(s.JitterFraction, 0) || s.JitterFraction < 0 || s.JitterFraction > 1 {
+		return fmt.Errorf("jitter_fraction must be finite and between 0 and 1")
 	}
 	switch s.Kind {
 	case Latency:
