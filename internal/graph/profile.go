@@ -86,9 +86,15 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 			baseline.HealthyEventIDs = append(baseline.HealthyEventIDs, sample.event.ID)
 		}
 		baseline.Status = samples[0].event.Status
-		baseline.StatusStable = true
+		baseline.StatusStable = strings.TrimSpace(baseline.Status) != ""
+		if !baseline.StatusStable {
+			baseline.Status = ""
+		}
 		for _, sample := range samples[1:] {
-			if sample.event.Status != baseline.Status {
+			if !baseline.StatusStable {
+				break
+			}
+			if strings.TrimSpace(sample.event.Status) == "" || sample.event.Status != baseline.Status {
 				baseline.StatusStable = false
 				baseline.Status = ""
 				break
@@ -176,7 +182,7 @@ func RankDivergencesAgainstProfile(profile HealthyProfile, failing []model.Event
 			continue
 		}
 
-		if baseline.StatusStable && baseline.Status != failingEvent.Status {
+		if baseline.StatusStable && strings.TrimSpace(failingEvent.Status) != "" && baseline.Status != failingEvent.Status {
 			reason := "status_change"
 			if terminalService != "" && key.service == terminalService {
 				reason = "terminal_status_change"
