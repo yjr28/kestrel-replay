@@ -40,3 +40,27 @@ func TestRankDivergencesAgainstProfileAbstainsWhenFailingSpanEventIdentityIsReus
 		t.Fatalf("reused failing event identity makes the profiled key ambiguous; got candidates %#v", candidates)
 	}
 }
+
+func TestBuildHealthyProfileRejectsEventIDReusedByMalformedSpan(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	runs := [][]model.Event{
+		{
+			{
+				ID: "reused", Source: model.SourceApplication, Kind: model.KindSpan,
+				Service: "orders", Operation: "POST /orders", Status: "ok", Timestamp: now,
+			},
+			{
+				ID: "reused", Source: model.SourceApplication, Kind: model.KindSpan,
+				Service: "", Operation: "GET /stock", Status: "ok", Timestamp: now.Add(time.Millisecond),
+			},
+		},
+		{{
+			ID: "healthy-orders-2", Source: model.SourceApplication, Kind: model.KindSpan,
+			Service: "orders", Operation: "POST /orders", Status: "ok", Timestamp: now.Add(time.Second),
+		}},
+	}
+
+	if _, err := BuildHealthyProfile(runs); err == nil {
+		t.Fatal("healthy profile must reject an eligible span whose event ID is reused by an unkeyed application span")
+	}
+}

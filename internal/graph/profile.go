@@ -44,9 +44,9 @@ type healthySpanSample struct {
 // BuildHealthyProfile builds a deterministic profile from at least two healthy
 // executions. Application spans without event identity or a nonblank
 // service/operation localization key are ineligible evidence. Duplicate eligible
-// application spans for the same service/operation, or reused eligible event IDs,
-// in one run are rejected because the current v1 profile cannot assign exact
-// provenance to either ambiguity.
+// application spans for the same service/operation, or event IDs reused across
+// application spans in one run, are rejected because the current v1 profile
+// cannot assign exact provenance to either ambiguity.
 func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 	if len(runs) < 2 {
 		return HealthyProfile{}, fmt.Errorf("healthy profile requires at least two runs")
@@ -55,15 +55,19 @@ func BuildHealthyProfile(runs [][]model.Event) (HealthyProfile, error) {
 	observed := make(map[divergenceKey]struct{})
 	for runIndex, run := range runs {
 		seen := make(map[divergenceKey]struct{})
-		seenEventIDs := make(map[string]struct{})
+		eventIDCounts := make(map[string]int)
+		for _, event := range run {
+			if event.Kind == model.KindSpan && event.Source == model.SourceApplication && strings.TrimSpace(event.ID) != "" {
+				eventIDCounts[event.ID]++
+			}
+		}
 		for _, event := range model.Sorted(run) {
 			if event.Kind != model.KindSpan || event.Source != model.SourceApplication || strings.TrimSpace(event.ID) == "" || strings.TrimSpace(event.Service) == "" || strings.TrimSpace(event.Operation) == "" {
 				continue
 			}
-			if _, ok := seenEventIDs[event.ID]; ok {
+			if eventIDCounts[event.ID] != 1 {
 				return HealthyProfile{}, fmt.Errorf("healthy run %d reuses application span event id %q", runIndex, event.ID)
 			}
-			seenEventIDs[event.ID] = struct{}{}
 			key := divergenceKey{service: strings.TrimSpace(event.Service), operation: strings.TrimSpace(event.Operation)}
 			if _, ok := seen[key]; ok {
 				return HealthyProfile{}, fmt.Errorf("healthy run %d contains duplicate application span %s/%s", runIndex, key.service, key.operation)
