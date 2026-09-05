@@ -52,6 +52,24 @@ func TestBuildRejectsAmbiguousSpanIdentityWithinTrace(t *testing.T) {
 	}
 }
 
+func TestBuildWithholdsAmbiguousMessagePublisherEdge(t *testing.T) {
+	now := time.Now()
+	events := []model.Event{
+		{ID: "publish-a", Sequence: 1, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "orders", Operation: "publish", Timestamp: now, Attributes: map[string]string{"message.id": "shared-message", "message.action": "publish"}},
+		{ID: "publish-b", Sequence: 2, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "orders", Operation: "publish", Timestamp: now.Add(time.Millisecond), Attributes: map[string]string{"message.id": "shared-message", "message.action": "publish"}},
+		{ID: "consume", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Operation: "consume", Timestamp: now.Add(2 * time.Millisecond), Attributes: map[string]string{"message.id": "shared-message", "message.action": "consume"}},
+	}
+	g, err := Build(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range g.Edges {
+		if edge.Kind == EdgeMessage {
+			t.Fatalf("ambiguous publisher identity must not create an arbitrary message edge: %#v", g.Edges)
+		}
+	}
+}
+
 func TestEarliestMeaningfulDivergenceLatency(t *testing.T) {
 	now := time.Now()
 	healthy := []model.Event{{ID: "h", Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t1", SpanID: "s1", Service: "inventory", Operation: "check", Timestamp: now, Status: "ok", Attributes: map[string]string{"duration_us": "1000"}}}
