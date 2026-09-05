@@ -45,3 +45,13 @@ func TestRankDivergencesUsesNormalizedKeyForTerminalAnchor(t *testing.T) {
 		t.Fatalf("unexpected normalized anchor: %+v", got[0])
 	}
 }
+
+func TestTopKContainsNormalizesExpectedLocalizationKey(t *testing.T) {
+	candidates := []LocalizationCandidate{{Divergence: Divergence{
+		Service: "inventory", Operation: "check", Reason: "status_change",
+	}}}
+
+	if !TopKContains(candidates, "  inventory\t", " check ", 1) {
+		t.Fatal("formatting-only whitespace in expected localization key must not change top-k membership")
+	}
+}
