@@ -17,7 +17,7 @@ Each experiment record is expected to contain:
 - expected behavior;
 - observed outcome signature.
 
-A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually implements it. Enum values may exist ahead of implementation for design clarity, but unsupported kinds are rejected rather than silently behaving as no-ops.
+A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually implements it. Enum values may exist ahead of implementation for design clarity, but unsupported kinds are rejected rather than silently behaving as no-ops. The generic evidence-envelope validator applies the same boundary to `fault` events: a nonblank `fault.kind` is not sufficient when that kind names a planned or otherwise unsupported fault class.
 
 ## Fault classes
 
