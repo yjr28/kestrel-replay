@@ -132,6 +132,8 @@ func TopKContains(candidates []LocalizationCandidate, service, operation string,
 	if k <= 0 {
 		return false
 	}
+	service = strings.TrimSpace(service)
+	operation = strings.TrimSpace(operation)
 	if k > len(candidates) {
 		k = len(candidates)
 	}
