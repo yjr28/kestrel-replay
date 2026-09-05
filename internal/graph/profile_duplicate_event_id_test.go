@@ -7,7 +7,7 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/model"
 )
 
-func TestRankDivergencesAgainstProfileExcludesReusedFailingSpanEventIdentity(t *testing.T) {
+func TestRankDivergencesAgainstProfileAbstainsWhenFailingSpanEventIdentityIsReused(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	healthyRuns := [][]model.Event{
 		{{
@@ -36,10 +36,7 @@ func TestRankDivergencesAgainstProfileExcludesReusedFailingSpanEventIdentity(t *
 	}
 
 	candidates := RankDivergencesAgainstProfile(profile, failing, 0, "")
-	if len(candidates) != 1 {
-		t.Fatalf("got %d candidates, want only the profiled orders span reported missing: %#v", len(candidates), candidates)
-	}
-	if got := candidates[0]; got.Reason != "missing_span" || got.Service != "orders" || got.FailingEventID != "" {
-		t.Fatalf("reused event identity must not establish profile-vs-failing evidence: %#v", got)
+	if len(candidates) != 0 {
+		t.Fatalf("reused failing event identity makes the profiled key ambiguous; got candidates %#v", candidates)
 	}
 }

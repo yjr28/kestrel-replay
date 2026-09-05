@@ -155,7 +155,9 @@ func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 // Duplicate service/operation keys are kept separately so callers can avoid
 // treating an arbitrary retry/duplicate as authoritative evidence while retry
 // semantics remain unmodeled. Event IDs reused by multiple otherwise eligible
-// spans are excluded because they cannot name one exact supporting event.
+// spans make every affected localization key ambiguous because the reused ID
+// cannot name one exact supporting event; callers must not reinterpret that
+// ambiguity as evidence that an affected span is missing or unexpected.
 func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
 	spans := make(map[divergenceKey]model.Event)
 	ambiguous := make(map[divergenceKey]struct{})
@@ -166,10 +168,15 @@ func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]
 		}
 	}
 	for _, e := range model.Sorted(events) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" || eventIDCounts[e.ID] != 1 {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
 			continue
 		}
 		key := divergenceKey{service: strings.TrimSpace(e.Service), operation: strings.TrimSpace(e.Operation)}
+		if eventIDCounts[e.ID] != 1 {
+			delete(spans, key)
+			ambiguous[key] = struct{}{}
+			continue
+		}
 		if _, alreadyAmbiguous := ambiguous[key]; alreadyAmbiguous {
 			continue
 		}

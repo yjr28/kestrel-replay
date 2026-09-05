@@ -7,7 +7,7 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/model"
 )
 
-func TestRankDivergencesExcludesReusedSpanEventIdentity(t *testing.T) {
+func TestRankDivergencesAbstainsWhenFailingSpanEventIdentityIsReused(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 	healthy := []model.Event{{
 		ID: "healthy-orders", Source: model.SourceApplication, Kind: model.KindSpan,
@@ -25,10 +25,30 @@ func TestRankDivergencesExcludesReusedSpanEventIdentity(t *testing.T) {
 	}
 
 	candidates := RankDivergences(healthy, failing, 0, "")
-	if len(candidates) != 1 {
-		t.Fatalf("got %d candidates, want only the healthy span reported missing: %#v", len(candidates), candidates)
+	if len(candidates) != 0 {
+		t.Fatalf("reused failing event identity makes affected keys ambiguous; got candidates %#v", candidates)
 	}
-	if got := candidates[0]; got.Reason != "missing_span" || got.Service != "orders" || got.HealthyEventID != "healthy-orders" || got.FailingEventID != "" {
-		t.Fatalf("reused event identity must not establish failing span evidence: %#v", got)
+}
+
+func TestRankDivergencesAbstainsWhenHealthySpanEventIdentityIsReused(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	healthy := []model.Event{
+		{
+			ID: "reused", Source: model.SourceApplication, Kind: model.KindSpan,
+			Service: "orders", Operation: "POST /orders", Status: "ok", Timestamp: now,
+		},
+		{
+			ID: "reused", Source: model.SourceApplication, Kind: model.KindSpan,
+			Service: "inventory", Operation: "GET /stock", Status: "ok", Timestamp: now.Add(time.Second),
+		},
+	}
+	failing := []model.Event{{
+		ID: "failing-orders", Source: model.SourceApplication, Kind: model.KindSpan,
+		Service: "orders", Operation: "POST /orders", Status: "error", Timestamp: now.Add(2 * time.Second),
+	}}
+
+	candidates := RankDivergences(healthy, failing, 0, "")
+	if len(candidates) != 0 {
+		t.Fatalf("reused healthy event identity makes affected keys ambiguous; got candidates %#v", candidates)
 	}
 }
