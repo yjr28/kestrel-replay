@@ -78,7 +78,7 @@ func RankDivergences(healthy, failing []model.Event, latencyThreshold time.Durat
 					}
 				}
 			}
-			if h.Status != f.Status {
+			if strings.TrimSpace(h.Status) != "" && strings.TrimSpace(f.Status) != "" && h.Status != f.Status {
 				reason := "status_change"
 				if terminalService != "" && key.service == terminalService {
 					reason = "terminal_status_change"
