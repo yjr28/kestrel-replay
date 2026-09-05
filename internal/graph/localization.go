@@ -78,14 +78,16 @@ func RankDivergences(healthy, failing []model.Event, latencyThreshold time.Durat
 					}
 				}
 			}
-			if strings.TrimSpace(h.Status) != "" && strings.TrimSpace(f.Status) != "" && h.Status != f.Status {
+			healthyStatus := strings.TrimSpace(h.Status)
+			failingStatus := strings.TrimSpace(f.Status)
+			if healthyStatus != "" && failingStatus != "" && healthyStatus != failingStatus {
 				reason := "status_change"
 				if terminalService != "" && key.service == terminalService {
 					reason = "terminal_status_change"
 				}
 				c := LocalizationCandidate{Divergence: Divergence{
 					Service: key.service, Operation: key.operation, Reason: reason,
-					HealthyValue: h.Status, FailingValue: f.Status,
+					HealthyValue: healthyStatus, FailingValue: failingStatus,
 					HealthyEventID: h.ID, FailingEventID: f.ID,
 				}}
 				scoreCandidate(&c, terminalService, latencyThreshold)
