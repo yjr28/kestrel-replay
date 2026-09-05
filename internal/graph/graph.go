@@ -81,6 +81,7 @@ func Build(events []model.Event) (*Graph, error) {
 			if parent, ok := spans[parentIdentity]; ok {
 				g.Edges = append(g.Edges, Edge{From: parent, To: id, Kind: EdgeParentSpan})
 			}
+		}
 		if e.Kind == model.KindMessage && e.Attributes["message.action"] == "consume" {
 			if publisher, ok := publishers[e.Attributes["message.id"]]; ok {
 				g.Edges = append(g.Edges, Edge{From: publisher, To: id, Kind: EdgeMessage})
