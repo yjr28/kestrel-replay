@@ -50,3 +50,28 @@ func TestProfileRankingRequiresNonblankFailingStatusEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestHealthyProfileNormalizesStatusWhitespace(t *testing.T) {
+	now := time.Now().UTC()
+	runs := [][]model.Event{
+		{{ID: "h1", Source: model.SourceApplication, Kind: model.KindSpan, Service: "inventory", Operation: "check", Timestamp: now, Status: " ok "}},
+		{{ID: "h2", Source: model.SourceApplication, Kind: model.KindSpan, Service: "inventory", Operation: "check", Timestamp: now.Add(time.Second), Status: "ok\t"}},
+	}
+
+	profile, err := BuildHealthyProfile(runs)
+	if err != nil {
+		t.Fatalf("build profile: %v", err)
+	}
+	baselines := profile.Baselines()
+	if len(baselines) != 1 {
+		t.Fatalf("expected one baseline, got %#v", baselines)
+	}
+	if !baselines[0].StatusStable || baselines[0].Status != "ok" {
+		t.Fatalf("equivalent healthy status whitespace was not normalized: %+v", baselines[0])
+	}
+
+	failing := []model.Event{{ID: "f", Source: model.SourceApplication, Kind: model.KindSpan, Service: "inventory", Operation: "check", Timestamp: now, Status: "  ok  "}}
+	if got := RankDivergencesAgainstProfile(profile, failing, time.Second, "inventory"); len(got) != 0 {
+		t.Fatalf("status whitespace manufactured profile divergence evidence: %#v", got)
+	}
+}
