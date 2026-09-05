@@ -147,7 +147,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		if delta < 0 {
 			delta = -delta
 		}
-		if delta >= latencyThreshold && (!haveLatency || delta > bestLatency.Delta) {
+		if latencyThreshold > 0 && delta >= latencyThreshold && (!haveLatency || delta > bestLatency.Delta) {
 			bestLatency = Divergence{
 				Service: key.service, Operation: key.operation, Reason: "latency_delta",
 				HealthyValue: hd.String(), FailingValue: fd.String(), Delta: delta,
