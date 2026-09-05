@@ -97,7 +97,7 @@ func NewWithFault(workers []string, capacity int, collectorURL string, spec *fau
 		workers:      append([]string(nil), workers...),
 		queue:        make(chan delivery, capacity),
 		client:       &http.Client{Timeout: 500 * time.Millisecond},
-		collectorURL: strings.TrimRight(collectorURL, "/"),
+		collectorURL: strings.TrimRight(strings.TrimSpace(collectorURL), "/"),
 		faultSpec:    copied,
 	}
 	b.wg.Add(1)

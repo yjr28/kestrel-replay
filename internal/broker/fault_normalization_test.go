@@ -16,9 +16,9 @@ func TestBrokerAsyncFaultNormalizesTargetKeys(t *testing.T) {
 		TriggerOnMatch: 1,
 		Seed:           101,
 	}
-	b, err := NewWithFault([]string{"http://worker"}, 1, "http://collector", &spec)
+	b, err := NewWithFault([]string{"http://worker"}, 1, "  http://collector/ \t", &spec)
 	if err != nil {
-		t.Fatalf("formatting-only whitespace should not reject a supported broker target: %v", err)
+		t.Fatalf("formatting-only whitespace should not reject supported broker configuration: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -36,6 +36,9 @@ func TestBrokerAsyncFaultNormalizesTargetKeys(t *testing.T) {
 	}
 	if got := b.faultSpec.Operation; got != ordersCompletedOperation {
 		t.Fatalf("operation was not canonicalized: %q", got)
+	}
+	if got := b.collectorURL; got != "http://collector" {
+		t.Fatalf("collector URL was not canonicalized: %q", got)
 	}
 	if spec.TargetService != " broker " || spec.Operation != " orders.completed\t" {
 		t.Fatalf("constructor mutated caller-owned spec: %+v", spec)
