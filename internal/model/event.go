@@ -63,6 +63,10 @@ func (e Event) Validate() error {
 		if strings.TrimSpace(e.Attributes["fault.kind"]) == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
 			return errors.New("fault events require fault.kind and target.service")
 		}
+	case KindNetwork, KindProcess:
+		// These event kinds currently have no kind-specific required fields.
+	default:
+		return fmt.Errorf("unsupported event kind %q", e.Kind)
 	}
 	return nil
 }

@@ -16,3 +16,10 @@ func TestEventValidateSpan(t *testing.T) {
 		t.Fatal("expected missing service to fail validation")
 	}
 }
+
+func TestEventValidateRejectsUnsupportedKind(t *testing.T) {
+	e := Event{ID: "e1", Kind: Kind("unknown"), Source: SourceApplication, Timestamp: time.Now()}
+	if err := e.Validate(); err == nil {
+		t.Fatal("expected unsupported event kind to fail validation")
+	}
+}
