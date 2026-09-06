@@ -61,6 +61,9 @@ func (e Event) Validate() error {
 			return errors.New("span events require trace_id, span_id, service, and operation")
 		}
 	case KindMessage:
+		if e.Source != SourceApplication {
+			return fmt.Errorf("message events require source %q", SourceApplication)
+		}
 		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.Attributes["message.id"]) == "" || strings.TrimSpace(e.Attributes["message.action"]) == "" {
 			return errors.New("message events require trace_id, message.id, and message.action")
 		}
