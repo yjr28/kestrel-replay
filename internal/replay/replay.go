@@ -243,5 +243,6 @@ func messageEvidenceFollows(publishTime time.Time, publishSequence uint64, consu
 // equality check. Replay can therefore prove that a scheduled delay reappeared
 // without pretending process scheduling or wall-clock timing is deterministic.
 func MeetsMinimumMessageDelay(sig MessageDelaySignature, minimum time.Duration) bool {
-	return minimum > 0 && sig.PublishCount > 0 && sig.CorrelatedConsumeCount > 0 && sig.MinConsumeDelayMicros >= minimum.Microseconds()
+	minimumMicros := minimum.Microseconds()
+	return minimum > 0 && minimumMicros > 0 && sig.PublishCount > 0 && sig.CorrelatedConsumeCount > 0 && sig.MinConsumeDelayMicros >= minimumMicros
 }
