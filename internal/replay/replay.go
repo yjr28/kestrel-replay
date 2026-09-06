@@ -155,6 +155,9 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
+		if strings.TrimSpace(event.Service) == "" {
+			continue
+		}
 		key := correlationKey(event)
 		if !key.complete() {
 			continue
