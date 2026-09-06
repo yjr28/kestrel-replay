@@ -108,10 +108,14 @@ func Build(events []model.Event) (*Graph, error) {
 				if targetOperation != "" && targetOperation != strings.TrimSpace(e.Operation) {
 					continue
 				}
-				if !faultEvent.Timestamp.After(e.Timestamp) {
-					g.Edges = append(g.Edges, Edge{From: faultID, To: id, Kind: EdgeFault})
-					break
+				if faultEvent.Timestamp.After(e.Timestamp) {
+					continue
 				}
+				if faultEvent.Timestamp.Equal(e.Timestamp) && faultEvent.Sequence >= e.Sequence {
+					continue
+				}
+				g.Edges = append(g.Edges, Edge{From: faultID, To: id, Kind: EdgeFault})
+				break
 			}
 		}
 	}
