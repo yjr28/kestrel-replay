@@ -78,11 +78,11 @@ func (e Event) Validate() error {
 			return errors.New("fault events require fault.kind and target.service")
 		}
 		switch faultKind {
-		case "latency", "connection_reset", "service_crash":
-		case "duplicate_message", "delayed_message":
+		case "latency", "connection_reset", "duplicate_message", "delayed_message":
 			if strings.TrimSpace(e.Attributes["target.operation"]) == "" {
 				return fmt.Errorf("%s fault events require target.operation", faultKind)
 			}
+		case "service_crash":
 		default:
 			return fmt.Errorf("unsupported fault event kind %q", e.Attributes["fault.kind"])
 		}
