@@ -91,8 +91,8 @@ func (e Event) Validate() error {
 				return fmt.Errorf("%s fault events require target.operation", faultKind)
 			}
 		case "service_crash":
-			if targetOperation != "" || strings.TrimSpace(e.Operation) != "" {
-				return errors.New("service_crash fault events are process-scoped and do not accept an operation")
+			if targetOperation != "" {
+				return errors.New("service_crash fault events are process-scoped and do not accept target.operation")
 			}
 		default:
 			return fmt.Errorf("unsupported fault event kind %q", e.Attributes["fault.kind"])

@@ -66,19 +66,20 @@ func TestEventValidateFaultAllowsAbsentEnvelopeTargetFields(t *testing.T) {
 	}
 }
 
-func TestEventValidateServiceCrashRejectsOperationScope(t *testing.T) {
+func TestEventValidateServiceCrashRejectsTargetOperationScope(t *testing.T) {
 	base := Event{
 		ID:        "e1",
 		Kind:      KindFault,
 		Source:    SourceFault,
 		Timestamp: time.Now(),
+		Operation: "process_exit",
 		Attributes: map[string]string{
 			"fault.kind":     "service_crash",
 			"target.service": "orders",
 		},
 	}
 	if err := base.Validate(); err != nil {
-		t.Fatalf("expected process-scoped service crash evidence to validate: %v", err)
+		t.Fatalf("expected process-scoped service crash evidence with descriptive event operation to validate: %v", err)
 	}
 
 	withTargetOperation := base
@@ -89,11 +90,5 @@ func TestEventValidateServiceCrashRejectsOperationScope(t *testing.T) {
 	}
 	if err := withTargetOperation.Validate(); err == nil {
 		t.Fatal("expected service crash target.operation to fail validation")
-	}
-
-	withEnvelopeOperation := base
-	withEnvelopeOperation.Operation = "create"
-	if err := withEnvelopeOperation.Validate(); err == nil {
-		t.Fatal("expected service crash envelope operation to fail validation")
 	}
 }
