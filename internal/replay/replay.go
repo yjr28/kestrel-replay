@@ -141,7 +141,7 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		}
 		current := publishes[messageID]
 		current.count++
-		if current.timestamp.IsZero() || event.Timestamp.Before(current.timestamp) || (event.Timestamp.Equal(current.timestamp) && event.Sequence < current.sequence) {
+		if current.timestamp.IsZero() || event.Timestamp.Before(current.timestamp) || (event.Timestamp.Equal(current.timestamp) && event.Sequence != 0 && (current.sequence == 0 || event.Sequence < current.sequence)) {
 			current.timestamp = event.Timestamp
 			current.sequence = event.Sequence
 		}
@@ -174,7 +174,13 @@ func messageEvidencePrecedes(publishTime time.Time, publishSequence uint64, cons
 	if publishTime.Before(consumeTime) {
 		return true
 	}
-	return publishTime.Equal(consumeTime) && publishSequence < consumeSequence
+	if !publishTime.Equal(consumeTime) {
+		return false
+	}
+	if publishSequence == 0 || consumeSequence == 0 {
+		return true
+	}
+	return publishSequence < consumeSequence
 }
 
 // MeetsMinimumMessageDelay is a threshold predicate, not an exact timing
