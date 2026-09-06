@@ -34,11 +34,16 @@ type spanIdentity struct {
 	spanID  string
 }
 
+type messageIdentity struct {
+	messageID string
+	topic     string
+}
+
 func Build(events []model.Event) (*Graph, error) {
 	g := &Graph{Nodes: make(map[string]model.Event, len(events))}
 	spans := map[spanIdentity]string{}
-	publishers := map[string]string{}
-	ambiguousPublishers := map[string]struct{}{}
+	publishers := map[messageIdentity]string{}
+	ambiguousPublishers := map[messageIdentity]struct{}{}
 	faultsByService := map[string][]string{}
 
 	for _, e := range model.Sorted(events) {
@@ -59,16 +64,19 @@ func Build(events []model.Event) (*Graph, error) {
 			spans[identity] = e.ID
 		}
 		if e.Kind == model.KindMessage && strings.TrimSpace(e.Attributes["message.action"]) == "publish" {
-			messageID := strings.TrimSpace(e.Attributes["message.id"])
-			if _, ambiguous := ambiguousPublishers[messageID]; ambiguous {
+			identity := messageIdentity{
+				messageID: strings.TrimSpace(e.Attributes["message.id"]),
+				topic:     strings.TrimSpace(e.Attributes["topic"]),
+			}
+			if _, ambiguous := ambiguousPublishers[identity]; ambiguous {
 				continue
 			}
-			if _, exists := publishers[messageID]; exists {
-				delete(publishers, messageID)
-				ambiguousPublishers[messageID] = struct{}{}
+			if _, exists := publishers[identity]; exists {
+				delete(publishers, identity)
+				ambiguousPublishers[identity] = struct{}{}
 				continue
 			}
-			publishers[messageID] = e.ID
+			publishers[identity] = e.ID
 		}
 		if e.Kind == model.KindFault {
 			targetService := strings.TrimSpace(e.Attributes["target.service"])
@@ -85,8 +93,11 @@ func Build(events []model.Event) (*Graph, error) {
 			}
 		}
 		if e.Kind == model.KindMessage && strings.TrimSpace(e.Attributes["message.action"]) == "consume" {
-			messageID := strings.TrimSpace(e.Attributes["message.id"])
-			if publisher, ok := publishers[messageID]; ok {
+			identity := messageIdentity{
+				messageID: strings.TrimSpace(e.Attributes["message.id"]),
+				topic:     strings.TrimSpace(e.Attributes["topic"]),
+			}
+			if publisher, ok := publishers[identity]; ok {
 				g.Edges = append(g.Edges, Edge{From: publisher, To: id, Kind: EdgeMessage})
 			}
 		}
