@@ -74,12 +74,20 @@ func (e Event) Validate() error {
 			return fmt.Errorf("fault events require source %q", SourceFault)
 		}
 		faultKind := strings.TrimSpace(e.Attributes["fault.kind"])
-		if faultKind == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
+		targetService := strings.TrimSpace(e.Attributes["target.service"])
+		targetOperation := strings.TrimSpace(e.Attributes["target.operation"])
+		if faultKind == "" || targetService == "" {
 			return errors.New("fault events require fault.kind and target.service")
+		}
+		if service := strings.TrimSpace(e.Service); service != "" && service != targetService {
+			return fmt.Errorf("fault event service %q conflicts with target.service %q", e.Service, e.Attributes["target.service"])
+		}
+		if operation := strings.TrimSpace(e.Operation); operation != "" && targetOperation != "" && operation != targetOperation {
+			return fmt.Errorf("fault event operation %q conflicts with target.operation %q", e.Operation, e.Attributes["target.operation"])
 		}
 		switch faultKind {
 		case "latency", "connection_reset", "duplicate_message", "delayed_message":
-			if strings.TrimSpace(e.Attributes["target.operation"]) == "" {
+			if targetOperation == "" {
 				return fmt.Errorf("%s fault events require target.operation", faultKind)
 			}
 		case "service_crash":
