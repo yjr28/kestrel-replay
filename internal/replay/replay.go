@@ -63,8 +63,7 @@ type messagePublishEvidence struct {
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
-	published := map[string]messagePublishEvidence{}
-	ambiguousPublishIDs := map[string]struct{}{}
+	publishes := map[string][]messagePublishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
@@ -74,22 +73,17 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 		if messageID == "" {
 			continue
 		}
-		if _, exists := published[messageID]; exists {
-			ambiguousPublishIDs[messageID] = struct{}{}
-			continue
-		}
-		published[messageID] = messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence}
+		publishes[messageID] = append(publishes[messageID], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
 	}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
 		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		publish, ok := published[messageID]
-		if !ok || messageID == "" {
+		if messageID == "" {
 			continue
 		}
-		if _, ambiguous := ambiguousPublishIDs[messageID]; ambiguous || !messageEvidencePrecedes(publish.timestamp, publish.sequence, event.Timestamp, event.Sequence) {
+		if _, ok := uniquePrecedingPublish(publishes[messageID], event.Timestamp, event.Sequence); !ok {
 			continue
 		}
 		sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
@@ -120,16 +114,10 @@ type MessageDelaySignature struct {
 	MinConsumeDelayMicros  int64  `json:"min_consume_delay_us"`
 }
 
-type publishEvidence struct {
-	timestamp time.Time
-	sequence  uint64
-	count     int
-}
-
 func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDelaySignature{Topic: topic}
-	publishes := map[string]publishEvidence{}
+	publishes := map[string][]messagePublishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
@@ -139,13 +127,7 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if messageID == "" {
 			continue
 		}
-		current := publishes[messageID]
-		current.count++
-		if current.timestamp.IsZero() || event.Timestamp.Before(current.timestamp) || (event.Timestamp.Equal(current.timestamp) && event.Sequence != 0 && (current.sequence == 0 || event.Sequence < current.sequence)) {
-			current.timestamp = event.Timestamp
-			current.sequence = event.Sequence
-		}
-		publishes[messageID] = current
+		publishes[messageID] = append(publishes[messageID], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
 	}
 
 	var haveDelay bool
@@ -153,11 +135,8 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
-		published, ok := publishes[strings.TrimSpace(event.Attributes["message.id"])]
-		if !ok || published.count != 1 {
-			continue
-		}
-		if !messageEvidencePrecedes(published.timestamp, published.sequence, event.Timestamp, event.Sequence) {
+		published, ok := uniquePrecedingPublish(publishes[strings.TrimSpace(event.Attributes["message.id"])], event.Timestamp, event.Sequence)
+		if !ok {
 			continue
 		}
 		delay := event.Timestamp.Sub(published.timestamp).Microseconds()
@@ -168,6 +147,22 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		}
 	}
 	return sig
+}
+
+func uniquePrecedingPublish(publishes []messagePublishEvidence, consumeTime time.Time, consumeSequence uint64) (messagePublishEvidence, bool) {
+	var match messagePublishEvidence
+	count := 0
+	for _, publish := range publishes {
+		if !messageEvidencePrecedes(publish.timestamp, publish.sequence, consumeTime, consumeSequence) {
+			continue
+		}
+		match = publish
+		count++
+		if count > 1 {
+			return messagePublishEvidence{}, false
+		}
+	}
+	return match, count == 1
 }
 
 func messageEvidencePrecedes(publishTime time.Time, publishSequence uint64, consumeTime time.Time, consumeSequence uint64) bool {
