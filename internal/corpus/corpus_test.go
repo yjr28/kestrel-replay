@@ -60,9 +60,10 @@ func TestDuplicateObservedValidationRequiresMultiplicity(t *testing.T) {
 		{ID: "fault", Source: model.SourceFault, Kind: model.KindFault, Timestamp: now, Attributes: map[string]string{"fault.kind": string(fault.DuplicateMessage), "target.service": "broker"}},
 		{ID: "pub", Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Timestamp: now, Service: "order", Attributes: map[string]string{"topic": Topic, "message.id": "m", "message.action": "publish"}},
 	}
+	consumeTime := now.Add(time.Millisecond)
 	for _, service := range []string{"notification", "audit", "analytics"} {
 		for i := 0; i < 2; i++ {
-			events = append(events, model.Event{ID: service + string(rune('a'+i)), Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Timestamp: now, Service: service, Attributes: map[string]string{"topic": Topic, "message.id": "m", "message.action": "consume"}})
+			events = append(events, model.Event{ID: service + string(rune('a'+i)), Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Timestamp: consumeTime, Service: service, Attributes: map[string]string{"topic": Topic, "message.id": "m", "message.action": "consume"}})
 		}
 	}
 	if err := ValidateObserved(c, outcome, events); err != nil {
