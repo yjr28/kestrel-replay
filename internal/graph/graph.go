@@ -45,20 +45,21 @@ func Build(events []model.Event) (*Graph, error) {
 		if err := e.Validate(); err != nil {
 			return nil, fmt.Errorf("event %q: %w", e.ID, err)
 		}
+		e.ID = strings.TrimSpace(e.ID)
 		if _, exists := g.Nodes[e.ID]; exists {
 			return nil, fmt.Errorf("duplicate event id %q", e.ID)
 		}
 		g.Nodes[e.ID] = e
 		g.Order = append(g.Order, e.ID)
 		if e.Kind == model.KindSpan {
-			identity := spanIdentity{traceID: e.TraceID, spanID: e.SpanID}
+			identity := spanIdentity{traceID: strings.TrimSpace(e.TraceID), spanID: strings.TrimSpace(e.SpanID)}
 			if existing, exists := spans[identity]; exists {
-				return nil, fmt.Errorf("duplicate span identity trace_id=%q span_id=%q in events %q and %q", e.TraceID, e.SpanID, existing, e.ID)
+				return nil, fmt.Errorf("duplicate span identity trace_id=%q span_id=%q in events %q and %q", identity.traceID, identity.spanID, existing, e.ID)
 			}
 			spans[identity] = e.ID
 		}
-		if e.Kind == model.KindMessage && e.Attributes["message.action"] == "publish" {
-			messageID := e.Attributes["message.id"]
+		if e.Kind == model.KindMessage && strings.TrimSpace(e.Attributes["message.action"]) == "publish" {
+			messageID := strings.TrimSpace(e.Attributes["message.id"])
 			if _, ambiguous := ambiguousPublishers[messageID]; ambiguous {
 				continue
 			}
@@ -70,25 +71,27 @@ func Build(events []model.Event) (*Graph, error) {
 			publishers[messageID] = e.ID
 		}
 		if e.Kind == model.KindFault {
-			faultsByService[e.Attributes["target.service"]] = append(faultsByService[e.Attributes["target.service"]], e.ID)
+			targetService := strings.TrimSpace(e.Attributes["target.service"])
+			faultsByService[targetService] = append(faultsByService[targetService], e.ID)
 		}
 	}
 
 	for _, id := range g.Order {
 		e := g.Nodes[id]
-		if e.Kind == model.KindSpan && e.ParentSpanID != "" {
-			parentIdentity := spanIdentity{traceID: e.TraceID, spanID: e.ParentSpanID}
+		if e.Kind == model.KindSpan && strings.TrimSpace(e.ParentSpanID) != "" {
+			parentIdentity := spanIdentity{traceID: strings.TrimSpace(e.TraceID), spanID: strings.TrimSpace(e.ParentSpanID)}
 			if parent, ok := spans[parentIdentity]; ok {
 				g.Edges = append(g.Edges, Edge{From: parent, To: id, Kind: EdgeParentSpan})
 			}
 		}
-		if e.Kind == model.KindMessage && e.Attributes["message.action"] == "consume" {
-			if publisher, ok := publishers[e.Attributes["message.id"]]; ok {
+		if e.Kind == model.KindMessage && strings.TrimSpace(e.Attributes["message.action"]) == "consume" {
+			messageID := strings.TrimSpace(e.Attributes["message.id"])
+			if publisher, ok := publishers[messageID]; ok {
 				g.Edges = append(g.Edges, Edge{From: publisher, To: id, Kind: EdgeMessage})
 			}
 		}
 		if e.Kind == model.KindSpan {
-			for _, faultID := range faultsByService[e.Service] {
+			for _, faultID := range faultsByService[strings.TrimSpace(e.Service)] {
 				faultEvent := g.Nodes[faultID]
 				if !faultEvent.Timestamp.After(e.Timestamp) {
 					g.Edges = append(g.Edges, Edge{From: faultID, To: id, Kind: EdgeFault})
