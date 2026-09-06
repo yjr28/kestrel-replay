@@ -42,8 +42,7 @@ type messageIdentity struct {
 func Build(events []model.Event) (*Graph, error) {
 	g := &Graph{Nodes: make(map[string]model.Event, len(events))}
 	spans := map[spanIdentity]string{}
-	publishers := map[messageIdentity]string{}
-	ambiguousPublishers := map[messageIdentity]struct{}{}
+	publishers := map[messageIdentity][]string{}
 	faultsByService := map[string][]string{}
 
 	for _, e := range model.Sorted(events) {
@@ -68,15 +67,7 @@ func Build(events []model.Event) (*Graph, error) {
 				messageID: strings.TrimSpace(e.Attributes["message.id"]),
 				topic:     strings.TrimSpace(e.Attributes["topic"]),
 			}
-			if _, ambiguous := ambiguousPublishers[identity]; ambiguous {
-				continue
-			}
-			if _, exists := publishers[identity]; exists {
-				delete(publishers, identity)
-				ambiguousPublishers[identity] = struct{}{}
-				continue
-			}
-			publishers[identity] = e.ID
+			publishers[identity] = append(publishers[identity], e.ID)
 		}
 		if e.Kind == model.KindFault {
 			targetService := strings.TrimSpace(e.Attributes["target.service"])
@@ -97,11 +88,22 @@ func Build(events []model.Event) (*Graph, error) {
 				messageID: strings.TrimSpace(e.Attributes["message.id"]),
 				topic:     strings.TrimSpace(e.Attributes["topic"]),
 			}
-			if publisher, ok := publishers[identity]; ok {
+			var eligiblePublisher string
+			ambiguous := false
+			for _, publisher := range publishers[identity] {
 				publishEvent := g.Nodes[publisher]
-				if publishEvent.Timestamp.Before(e.Timestamp) || (publishEvent.Timestamp.Equal(e.Timestamp) && publishEvent.Sequence < e.Sequence) {
-					g.Edges = append(g.Edges, Edge{From: publisher, To: id, Kind: EdgeMessage})
+				precedes := publishEvent.Timestamp.Before(e.Timestamp) || (publishEvent.Timestamp.Equal(e.Timestamp) && publishEvent.Sequence < e.Sequence)
+				if !precedes {
+					continue
 				}
+				if eligiblePublisher != "" {
+					ambiguous = true
+					break
+				}
+				eligiblePublisher = publisher
+			}
+			if eligiblePublisher != "" && !ambiguous {
+				g.Edges = append(g.Edges, Edge{From: eligiblePublisher, To: id, Kind: EdgeMessage})
 			}
 		}
 		if e.Kind == model.KindSpan {
