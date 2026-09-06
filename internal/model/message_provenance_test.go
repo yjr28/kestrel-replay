@@ -11,10 +11,12 @@ func TestEventValidateMessageRequiresApplicationProvenance(t *testing.T) {
 		ID:        "e1",
 		Kind:      KindMessage,
 		TraceID:   "trace",
+		Service:   "order",
 		Timestamp: time.Now(),
 		Attributes: map[string]string{
 			"message.id":     "m1",
 			"message.action": "publish",
+			"topic":          "orders.completed",
 		},
 	}
 
