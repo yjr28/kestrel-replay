@@ -17,7 +17,7 @@ Each experiment record is expected to contain:
 - expected behavior;
 - observed outcome signature.
 
-A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually implements it. Enum values may exist ahead of implementation for design clarity, but unsupported kinds are rejected rather than silently behaving as no-ops. The generic evidence-envelope validator applies the same boundary to `fault` events: a nonblank `fault.kind` is not sufficient when that kind names a planned or otherwise unsupported fault class. All accepted fault events require a nonblank target service. The implemented operation-scoped latency, connection-reset, duplicate-message, and delayed-message evidence also requires a nonblank target operation/topic; process-scoped service-crash evidence is the current exception and remains valid without one.
+A fault kind is accepted by `fault.Spec.Validate` only when the runtime actually implements it. Enum values may exist ahead of implementation for design clarity, but unsupported kinds are rejected rather than silently behaving as no-ops. The generic evidence-envelope validator applies the same boundary to `fault` events: a nonblank `fault.kind` is not sufficient when that kind names a planned or otherwise unsupported fault class. All accepted fault events require a nonblank target service. The implemented operation-scoped latency, connection-reset, duplicate-message, and delayed-message evidence also requires a nonblank target operation/topic. Process-scoped service-crash evidence must not carry `target.operation`; a top-level event `operation` may still describe the observed injector action (for example `process_exit`) without changing the fault target scope.
 
 ## Fault classes
 
