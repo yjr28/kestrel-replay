@@ -55,3 +55,31 @@ func TestTerminalEarliestDivergenceRequiresIndexedHealthyEvidence(t *testing.T) 
 		t.Fatalf("terminal anchor must not revive ineligible healthy evidence, got %+v", divergence)
 	}
 }
+
+func TestEarliestDivergenceRejectsStructurallyInvalidSpanEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	healthy := []model.Event{profileSpan("h-order", "order", "create", "ok", 1000, now)}
+	invalid := profileSpan("f-inventory", "inventory", "check", "error", 1000, now)
+	invalid.TraceID = "   "
+	failing := []model.Event{
+		profileSpan("f-order", "order", "create", "ok", 1000, now),
+		invalid,
+	}
+	if divergence, ok := EarliestMeaningfulDivergence(healthy, failing, 20*time.Millisecond); ok {
+		t.Fatalf("structurally invalid span must not become localization evidence, got %+v", divergence)
+	}
+}
+
+func TestRankDivergencesRejectsStructurallyInvalidSpanEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	healthy := []model.Event{profileSpan("h-order", "order", "create", "ok", 1000, now)}
+	invalid := profileSpan("f-inventory", "inventory", "check", "error", 1000, now)
+	invalid.SpanID = ""
+	failing := []model.Event{
+		profileSpan("f-order", "order", "create", "ok", 1000, now),
+		invalid,
+	}
+	if candidates := RankDivergences(healthy, failing, 20*time.Millisecond, ""); len(candidates) != 0 {
+		t.Fatalf("structurally invalid span must not become ranked localization evidence, got %+v", candidates)
+	}
+}
