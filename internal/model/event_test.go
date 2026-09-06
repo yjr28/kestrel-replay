@@ -67,12 +67,12 @@ func TestEventValidateFaultKinds(t *testing.T) {
 	}
 
 	cases := []map[string]string{
-		{"target.service": "orders", "fault.kind": "latency"},
-		{"target.service": "orders", "fault.kind": "connection_reset"},
+		{"target.service": "orders", "target.operation": "create", "fault.kind": "latency"},
+		{"target.service": "orders", "target.operation": "create", "fault.kind": "connection_reset"},
 		{"target.service": "orders", "fault.kind": "service_crash"},
 		{"target.service": "broker", "target.operation": "orders.completed", "fault.kind": "duplicate_message"},
 		{"target.service": "broker", "target.operation": "orders.completed", "fault.kind": "delayed_message"},
-		{"target.service": "orders", "fault.kind": " latency "},
+		{"target.service": "orders", "target.operation": " create ", "fault.kind": " latency "},
 		{"target.service": "broker", "target.operation": " orders.completed ", "fault.kind": "\tdelayed_message\n"},
 	}
 	for _, attributes := range cases {
