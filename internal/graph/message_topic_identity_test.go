@@ -7,7 +7,7 @@ import (
 	"github.com/yjr28/kestrel-replay/internal/model"
 )
 
-func messageEvent(id, action, messageID, topic, service string, at time.Time) model.Event {
+func topicMessageEvent(id, action, messageID, topic, service string, at time.Time) model.Event {
 	return model.Event{
 		ID: id, Source: model.SourceApplication, Kind: model.KindMessage,
 		TraceID: "trace-1", Service: service, Timestamp: at,
@@ -22,8 +22,8 @@ func messageEvent(id, action, messageID, topic, service string, at time.Time) mo
 func TestBuildDoesNotLinkSameMessageIDAcrossTopics(t *testing.T) {
 	now := time.Now().UTC()
 	events := []model.Event{
-		messageEvent("publish-orders", "publish", "message-1", "orders", "producer", now),
-		messageEvent("consume-refunds", "consume", "message-1", "refunds", "consumer", now.Add(time.Millisecond)),
+		topicMessageEvent("publish-orders", "publish", "message-1", "orders", "producer", now),
+		topicMessageEvent("consume-refunds", "consume", "message-1", "refunds", "consumer", now.Add(time.Millisecond)),
 	}
 
 	g, err := Build(events)
@@ -38,11 +38,11 @@ func TestBuildDoesNotLinkSameMessageIDAcrossTopics(t *testing.T) {
 func TestBuildScopesPublisherAmbiguityToTopic(t *testing.T) {
 	now := time.Now().UTC()
 	events := []model.Event{
-		messageEvent("publish-orders-a", "publish", "message-1", "orders", "producer-a", now),
-		messageEvent("publish-orders-b", "publish", "message-1", "orders", "producer-b", now.Add(time.Millisecond)),
-		messageEvent("publish-refunds", "publish", "message-1", "refunds", "producer-c", now.Add(2*time.Millisecond)),
-		messageEvent("consume-orders", "consume", "message-1", "orders", "consumer-a", now.Add(3*time.Millisecond)),
-		messageEvent("consume-refunds", "consume", "message-1", "refunds", "consumer-b", now.Add(4*time.Millisecond)),
+		topicMessageEvent("publish-orders-a", "publish", "message-1", "orders", "producer-a", now),
+		topicMessageEvent("publish-orders-b", "publish", "message-1", "orders", "producer-b", now.Add(time.Millisecond)),
+		topicMessageEvent("publish-refunds", "publish", "message-1", "refunds", "producer-c", now.Add(2*time.Millisecond)),
+		topicMessageEvent("consume-orders", "consume", "message-1", "orders", "consumer-a", now.Add(3*time.Millisecond)),
+		topicMessageEvent("consume-refunds", "consume", "message-1", "refunds", "consumer-b", now.Add(4*time.Millisecond)),
 	}
 
 	g, err := Build(events)
