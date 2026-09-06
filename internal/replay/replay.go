@@ -60,30 +60,42 @@ type messagePublishEvidence struct {
 	sequence  uint64
 }
 
+type messageCorrelationKey struct {
+	traceID   string
+	messageID string
+}
+
+func correlationKey(event model.Event) messageCorrelationKey {
+	return messageCorrelationKey{
+		traceID:   strings.TrimSpace(event.TraceID),
+		messageID: strings.TrimSpace(event.Attributes["message.id"]),
+	}
+}
+
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
-	publishes := map[string][]messagePublishEvidence{}
+	publishes := map[messageCorrelationKey][]messagePublishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
 		}
 		sig.PublishCount++
-		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		if messageID == "" {
+		key := correlationKey(event)
+		if key.messageID == "" {
 			continue
 		}
-		publishes[messageID] = append(publishes[messageID], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
+		publishes[key] = append(publishes[key], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
 	}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
-		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		if messageID == "" {
+		key := correlationKey(event)
+		if key.messageID == "" {
 			continue
 		}
-		if _, ok := uniquePrecedingPublish(publishes[messageID], event.Timestamp, event.Sequence); !ok {
+		if _, ok := uniquePrecedingPublish(publishes[key], event.Timestamp, event.Sequence); !ok {
 			continue
 		}
 		sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
@@ -105,8 +117,8 @@ func EquivalentMessageDelivery(a, b MessageDeliverySignature) bool {
 
 // MessageDelaySignature captures the earliest observed publish-to-consume delay
 // for a topic while deliberately excluding generated message identifiers from
-// the signature. Correlation still uses message.id internally so unrelated
-// messages cannot satisfy a delayed-delivery replay gate.
+// the signature. Correlation still uses trace_id and message.id internally so
+// unrelated messages cannot satisfy a delayed-delivery replay gate.
 type MessageDelaySignature struct {
 	Topic                  string `json:"topic"`
 	PublishCount           int    `json:"publish_count"`
@@ -117,17 +129,17 @@ type MessageDelaySignature struct {
 func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDelaySignature{Topic: topic}
-	publishes := map[string][]messagePublishEvidence{}
+	publishes := map[messageCorrelationKey][]messagePublishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
 			continue
 		}
 		sig.PublishCount++
-		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		if messageID == "" {
+		key := correlationKey(event)
+		if key.messageID == "" {
 			continue
 		}
-		publishes[messageID] = append(publishes[messageID], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
+		publishes[key] = append(publishes[key], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
 	}
 
 	var haveDelay bool
@@ -135,7 +147,7 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
-		published, ok := uniquePrecedingPublish(publishes[strings.TrimSpace(event.Attributes["message.id"])], event.Timestamp, event.Sequence)
+		published, ok := uniquePrecedingPublish(publishes[correlationKey(event)], event.Timestamp, event.Sequence)
 		if !ok {
 			continue
 		}
