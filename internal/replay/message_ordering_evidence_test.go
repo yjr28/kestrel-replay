@@ -22,8 +22,8 @@ func TestMessageDeliveryWithholdsEqualTimestampWhenSequenceEvidenceIsInsufficien
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sig := MessageDelivery([]model.Event{
-				{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Sequence: tt.publishSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "publish"}},
-				{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now, Sequence: tt.consumeSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "consume"}},
+				{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now, Sequence: tt.publishSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "publish"}},
+				{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: now, Sequence: tt.consumeSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "consume"}},
 			}, "orders.completed")
 
 			if sig.PublishCount != 1 {
@@ -51,8 +51,8 @@ func TestMessageDelayWithholdsEqualTimestampWhenSequenceEvidenceIsInsufficient(t
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sig := MessageDelay([]model.Event{
-				{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Sequence: tt.publishSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "publish"}},
-				{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now, Sequence: tt.consumeSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "consume"}},
+				{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now, Sequence: tt.publishSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "publish"}},
+				{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: now, Sequence: tt.consumeSequence, Attributes: map[string]string{"topic": "orders.completed", "message.id": "same", "message.action": "consume"}},
 			}, "orders.completed")
 
 			if sig.CorrelatedConsumeCount != 0 || sig.MinConsumeDelayMicros != 0 {

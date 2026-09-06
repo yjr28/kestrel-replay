@@ -9,8 +9,8 @@ import (
 
 func TestMessageDeliveryRejectsZeroTimestampPublishEvidence(t *testing.T) {
 	events := []model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: time.Now().UTC(), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: time.Now().UTC(), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
 	}
 
 	sig := MessageDelivery(events, "orders.completed")
@@ -21,8 +21,8 @@ func TestMessageDeliveryRejectsZeroTimestampPublishEvidence(t *testing.T) {
 
 func TestMessageDelayRejectsZeroTimestampPublishEvidence(t *testing.T) {
 	events := []model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: time.Now().UTC(), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: time.Now().UTC(), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
 	}
 
 	sig := MessageDelay(events, "orders.completed")
@@ -36,8 +36,8 @@ func TestMessageDelayRejectsZeroTimestampPublishEvidence(t *testing.T) {
 
 func TestMessageDeliveryRejectsZeroTimestampConsumeEvidence(t *testing.T) {
 	events := []model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
 	}
 
 	sig := MessageDelivery(events, "orders.completed")
