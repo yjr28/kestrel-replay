@@ -87,11 +87,11 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 		if strings.TrimSpace(event.Service) == "" {
 			continue
 		}
+		sig.PublishCount++
 		key := correlationKey(event)
 		if !key.complete() {
 			continue
 		}
-		sig.PublishCount++
 		publishes[key] = append(publishes[key], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
 	}
 	for _, event := range events {
@@ -148,11 +148,11 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if strings.TrimSpace(event.Service) == "" {
 			continue
 		}
+		sig.PublishCount++
 		key := correlationKey(event)
 		if !key.complete() {
 			continue
 		}
-		sig.PublishCount++
 		publishes[key] = append(publishes[key], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
 	}
 
