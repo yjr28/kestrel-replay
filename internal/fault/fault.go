@@ -45,10 +45,16 @@ func (s Spec) Validate() error {
 	}
 	switch s.Kind {
 	case Latency:
+		if strings.TrimSpace(s.Operation) == "" {
+			return fmt.Errorf("latency fault requires a target operation")
+		}
 		if s.Delay <= 0 {
 			return fmt.Errorf("latency fault requires positive delay")
 		}
 	case ConnectionReset:
+		if strings.TrimSpace(s.Operation) == "" {
+			return fmt.Errorf("connection reset requires a target operation")
+		}
 		if s.Delay != 0 || s.JitterFraction != 0 {
 			return fmt.Errorf("connection reset does not accept delay or jitter parameters")
 		}
