@@ -235,9 +235,10 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 }
 
 // messageFlowCountsWithAmbiguity withholds an entire observable flow key when
-// any otherwise keyable event for that flow reuses application-message event
-// identity. A reused event ID cannot establish an exact multiplicity, and its
-// exclusion must not be reinterpreted as evidence that the flow was absent.
+// any otherwise keyable event for that flow reuses canonical application-message
+// event identity. Formatting-only whitespace cannot create distinct provenance.
+// A reused event ID cannot establish an exact multiplicity, and its exclusion
+// must not be reinterpreted as evidence that the flow was absent.
 func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string, map[messageFlowKey]struct{}) {
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
@@ -245,12 +246,14 @@ func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]in
 	sortedEvents := model.Sorted(events)
 	eventIDCounts := make(map[string]int)
 	for _, event := range sortedEvents {
-		if event.Source == model.SourceApplication && event.Kind == model.KindMessage && strings.TrimSpace(event.ID) != "" {
-			eventIDCounts[event.ID]++
+		eventID := strings.TrimSpace(event.ID)
+		if event.Source == model.SourceApplication && event.Kind == model.KindMessage && eventID != "" {
+			eventIDCounts[eventID]++
 		}
 	}
 	for _, event := range sortedEvents {
-		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.ID) == "" {
+		eventID := strings.TrimSpace(event.ID)
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || eventID == "" {
 			continue
 		}
 		topic := strings.TrimSpace(event.Attributes["topic"])
@@ -261,7 +264,7 @@ func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]in
 			continue
 		}
 		key := messageFlowKey{topic: topic, action: action, service: service}
-		if eventIDCounts[event.ID] != 1 {
+		if eventIDCounts[eventID] != 1 {
 			delete(counts, key)
 			delete(ids, key)
 			ambiguous[key] = struct{}{}
@@ -271,7 +274,7 @@ func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]in
 			continue
 		}
 		counts[key]++
-		ids[key] = append(ids[key], event.ID)
+		ids[key] = append(ids[key], eventID)
 	}
 	return counts, ids, ambiguous
 }
