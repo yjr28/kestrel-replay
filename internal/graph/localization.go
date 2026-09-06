@@ -22,10 +22,6 @@ type LocalizationCandidate struct {
 	ScoreBasis      []string `json:"score_basis,omitempty"`
 }
 
-// RankDivergences compares application spans and returns deterministic,
-// evidence-backed localization candidates. Failure-injector events are never
-// consulted. terminalService, when present, is an externally observed outcome
-// anchor and only boosts candidates for that service.
 func RankDivergences(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) []LocalizationCandidate {
 	terminalService = strings.TrimSpace(terminalService)
 	healthySpans, healthyAmbiguous := applicationSpanIndexWithAmbiguity(healthy)
@@ -125,9 +121,6 @@ func RankDivergences(healthy, failing []model.Event, latencyThreshold time.Durat
 	return candidates
 }
 
-// TopKContains reports whether the expected service/operation pair appears in
-// the first k ranked candidates. It is intended for deterministic corpus
-// evaluation; it does not infer seeded truth from fault events.
 func TopKContains(candidates []LocalizationCandidate, service, operation string, k int) bool {
 	if k <= 0 {
 		return false
@@ -152,15 +145,15 @@ func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 
 // applicationSpanIndexWithAmbiguity returns only timestamped application span
 // keys backed by exactly one identified event with a nonblank service/operation
-// key. Duplicate service/operation keys are kept separately so callers can avoid
+// key. Identified keyed spans that are untimestamped make that key ambiguous:
+// discarding them as if absent could manufacture a false missing-span divergence.
+// Duplicate service/operation keys are kept separately so callers can avoid
 // treating an arbitrary retry/duplicate as authoritative evidence while retry
 // semantics remain unmodeled. Event IDs reused by multiple application spans
 // make every otherwise eligible affected localization key ambiguous because a
 // reused canonical ID cannot name one exact supporting span, even when another
 // span with that ID has unusable localization evidence. Formatting-only
-// whitespace cannot create distinct provenance. Callers must not reinterpret
-// untimestamped or ambiguous evidence as evidence that an affected span is
-// missing or unexpected.
+// whitespace cannot create distinct provenance.
 func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
 	spans := make(map[divergenceKey]model.Event)
 	ambiguous := make(map[divergenceKey]struct{})
@@ -173,11 +166,18 @@ func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]
 	}
 	for _, e := range model.Sorted(events) {
 		eventID := strings.TrimSpace(e.ID)
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || eventID == "" || e.Timestamp.IsZero() || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
+		service := strings.TrimSpace(e.Service)
+		operation := strings.TrimSpace(e.Operation)
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || eventID == "" || service == "" || operation == "" {
+			continue
+		}
+		key := divergenceKey{service: service, operation: operation}
+		if e.Timestamp.IsZero() {
+			delete(spans, key)
+			ambiguous[key] = struct{}{}
 			continue
 		}
 		e.ID = eventID
-		key := divergenceKey{service: strings.TrimSpace(e.Service), operation: strings.TrimSpace(e.Operation)}
 		if eventIDCounts[eventID] != 1 {
 			delete(spans, key)
 			ambiguous[key] = struct{}{}

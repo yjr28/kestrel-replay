@@ -83,3 +83,23 @@ func TestRankDivergencesRejectsUntimestampedSpanEvidence(t *testing.T) {
 		t.Fatalf("untimestamped span must not become ranked localization evidence, got %+v", candidates)
 	}
 }
+
+func TestEarliestDivergenceDoesNotTreatUntimestampedMatchingSpanAsMissing(t *testing.T) {
+	now := time.Now().UTC()
+	healthy := []model.Event{profileSpan("h-inventory", "inventory", "check", "ok", 1000, now)}
+	invalid := profileSpan("f-inventory", "inventory", "check", "error", 1000, now)
+	invalid.Timestamp = time.Time{}
+	if divergence, ok := EarliestMeaningfulDivergence(healthy, []model.Event{invalid}, 20*time.Millisecond); ok {
+		t.Fatalf("untimestamped matching evidence must make the key unusable, not missing: %+v", divergence)
+	}
+}
+
+func TestRankDivergencesDoesNotTreatUntimestampedMatchingSpanAsMissing(t *testing.T) {
+	now := time.Now().UTC()
+	healthy := []model.Event{profileSpan("h-inventory", "inventory", "check", "ok", 1000, now)}
+	invalid := profileSpan("f-inventory", "inventory", "check", "error", 1000, now)
+	invalid.Timestamp = time.Time{}
+	if candidates := RankDivergences(healthy, []model.Event{invalid}, 20*time.Millisecond, "inventory"); len(candidates) != 0 {
+		t.Fatalf("untimestamped matching evidence must not manufacture missing-span ranking: %+v", candidates)
+	}
+}
