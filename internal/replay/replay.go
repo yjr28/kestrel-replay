@@ -55,10 +55,15 @@ type MessageDeliverySignature struct {
 	ConsumeCounts map[string]int `json:"consume_counts"`
 }
 
+type messagePublishEvidence struct {
+	timestamp time.Time
+	sequence  uint64
+}
+
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
-	publishedAt := map[string]time.Time{}
+	published := map[string]messagePublishEvidence{}
 	ambiguousPublishIDs := map[string]struct{}{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
@@ -69,22 +74,22 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 		if messageID == "" {
 			continue
 		}
-		if _, exists := publishedAt[messageID]; exists {
+		if _, exists := published[messageID]; exists {
 			ambiguousPublishIDs[messageID] = struct{}{}
 			continue
 		}
-		publishedAt[messageID] = event.Timestamp
+		published[messageID] = messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence}
 	}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
 		messageID := strings.TrimSpace(event.Attributes["message.id"])
-		publishTime, ok := publishedAt[messageID]
+		publish, ok := published[messageID]
 		if !ok || messageID == "" {
 			continue
 		}
-		if _, ambiguous := ambiguousPublishIDs[messageID]; ambiguous || event.Timestamp.Before(publishTime) {
+		if _, ambiguous := ambiguousPublishIDs[messageID]; ambiguous || !messageEvidencePrecedes(publish.timestamp, publish.sequence, event.Timestamp, event.Sequence) {
 			continue
 		}
 		sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
@@ -117,6 +122,7 @@ type MessageDelaySignature struct {
 
 type publishEvidence struct {
 	timestamp time.Time
+	sequence  uint64
 	count     int
 }
 
@@ -135,8 +141,9 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		}
 		current := publishes[messageID]
 		current.count++
-		if current.timestamp.IsZero() || event.Timestamp.Before(current.timestamp) {
+		if current.timestamp.IsZero() || event.Timestamp.Before(current.timestamp) || (event.Timestamp.Equal(current.timestamp) && event.Sequence < current.sequence) {
 			current.timestamp = event.Timestamp
+			current.sequence = event.Sequence
 		}
 		publishes[messageID] = current
 	}
@@ -150,7 +157,7 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if !ok || published.count != 1 {
 			continue
 		}
-		if event.Timestamp.Before(published.timestamp) {
+		if !messageEvidencePrecedes(published.timestamp, published.sequence, event.Timestamp, event.Sequence) {
 			continue
 		}
 		delay := event.Timestamp.Sub(published.timestamp).Microseconds()
@@ -161,6 +168,13 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		}
 	}
 	return sig
+}
+
+func messageEvidencePrecedes(publishTime time.Time, publishSequence uint64, consumeTime time.Time, consumeSequence uint64) bool {
+	if publishTime.Before(consumeTime) {
+		return true
+	}
+	return publishTime.Equal(consumeTime) && publishSequence < consumeSequence
 }
 
 // MeetsMinimumMessageDelay is a threshold predicate, not an exact timing
