@@ -58,3 +58,37 @@ func TestMessageDeliveryWithholdsAmbiguousPublishCorrelation(t *testing.T) {
 		t.Fatalf("duplicate publish identity must withhold ambiguous delivery correlation: %+v", sig)
 	}
 }
+
+func TestMessageDeliveryScopesPublishAmbiguityToConsumeOrdering(t *testing.T) {
+	now := time.Now().UTC()
+	events := []model.Event{
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now.Add(time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now.Add(2 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+	}
+
+	sig := MessageDelivery(events, "orders.completed")
+	if sig.PublishCount != 2 {
+		t.Fatalf("expected both publishes to remain observable, got %+v", sig)
+	}
+	if sig.ConsumeCounts["notification"] != 1 {
+		t.Fatalf("a later duplicate publish must not erase uniquely preceding delivery evidence: %+v", sig)
+	}
+}
+
+func TestMessageDelayScopesPublishAmbiguityToConsumeOrdering(t *testing.T) {
+	now := time.Now().UTC()
+	events := []model.Event{
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now.Add(5 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now.Add(10 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+	}
+
+	sig := MessageDelay(events, "orders.completed")
+	if sig.PublishCount != 2 {
+		t.Fatalf("expected both publishes to remain observable, got %+v", sig)
+	}
+	if sig.CorrelatedConsumeCount != 1 || sig.MinConsumeDelayMicros != (5*time.Millisecond).Microseconds() {
+		t.Fatalf("a later duplicate publish must not erase uniquely preceding delay evidence: %+v", sig)
+	}
+}
