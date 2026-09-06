@@ -70,6 +70,9 @@ func (e Event) Validate() error {
 			return fmt.Errorf("unsupported message action %q", e.Attributes["message.action"])
 		}
 	case KindFault:
+		if e.Source != SourceFault {
+			return fmt.Errorf("fault events require source %q", SourceFault)
+		}
 		faultKind := strings.TrimSpace(e.Attributes["fault.kind"])
 		if faultKind == "" || strings.TrimSpace(e.Attributes["target.service"]) == "" {
 			return errors.New("fault events require fault.kind and target.service")
