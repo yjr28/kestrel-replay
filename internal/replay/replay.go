@@ -79,6 +79,9 @@ func (key messageCorrelationKey) complete() bool {
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
+	if topic == "" {
+		return sig
+	}
 	publishes := map[messageCorrelationKey][]messagePublishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
@@ -140,6 +143,9 @@ type MessageDelaySignature struct {
 func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDelaySignature{Topic: topic}
+	if topic == "" {
+		return sig
+	}
 	publishes := map[messageCorrelationKey][]messagePublishEvidence{}
 	for _, event := range events {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "publish" {
