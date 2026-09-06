@@ -37,24 +37,58 @@ func TestEventValidateMessageActions(t *testing.T) {
 		Kind:      KindMessage,
 		Source:    SourceApplication,
 		TraceID:   "trace",
+		Service:   "order",
 		Timestamp: time.Now(),
 		Attributes: map[string]string{
 			"message.id": "m1",
+			"topic":      "orders.completed",
 		},
 	}
 
 	for _, action := range []string{"publish", "consume", " publish ", "\tconsume\n"} {
 		e := base
-		e.Attributes = map[string]string{"message.id": "m1", "message.action": action}
+		e.Attributes = map[string]string{"message.id": "m1", "message.action": action, "topic": "orders.completed"}
 		if err := e.Validate(); err != nil {
 			t.Fatalf("expected supported message action %q to validate: %v", action, err)
 		}
 	}
 
 	e := base
-	e.Attributes = map[string]string{"message.id": "m1", "message.action": "ack"}
+	e.Attributes = map[string]string{"message.id": "m1", "message.action": "ack", "topic": "orders.completed"}
 	if err := e.Validate(); err == nil {
 		t.Fatal("expected unsupported message action to fail validation")
+	}
+}
+
+func TestEventValidateMessageRequiresTopologyIdentity(t *testing.T) {
+	base := Event{
+		ID:        "e1",
+		Kind:      KindMessage,
+		Source:    SourceApplication,
+		TraceID:   "trace",
+		Service:   "order",
+		Timestamp: time.Now(),
+		Attributes: map[string]string{
+			"message.id":     "m1",
+			"message.action": "publish",
+			"topic":          "orders.completed",
+		},
+	}
+
+	missingService := base
+	missingService.Service = " \t "
+	if err := missingService.Validate(); err == nil {
+		t.Fatal("expected message event without service identity to fail validation")
+	}
+
+	missingTopic := base
+	missingTopic.Attributes = map[string]string{
+		"message.id":     "m1",
+		"message.action": "publish",
+		"topic":          " \n ",
+	}
+	if err := missingTopic.Validate(); err == nil {
+		t.Fatal("expected message event without topic identity to fail validation")
 	}
 }
 

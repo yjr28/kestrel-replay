@@ -64,8 +64,8 @@ func (e Event) Validate() error {
 		if e.Source != SourceApplication {
 			return fmt.Errorf("message events require source %q", SourceApplication)
 		}
-		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.Attributes["message.id"]) == "" || strings.TrimSpace(e.Attributes["message.action"]) == "" {
-			return errors.New("message events require trace_id, message.id, and message.action")
+		if strings.TrimSpace(e.TraceID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Attributes["message.id"]) == "" || strings.TrimSpace(e.Attributes["message.action"]) == "" || strings.TrimSpace(e.Attributes["topic"]) == "" {
+			return errors.New("message events require trace_id, service, message.id, message.action, and topic")
 		}
 		switch strings.TrimSpace(e.Attributes["message.action"]) {
 		case "publish", "consume":
