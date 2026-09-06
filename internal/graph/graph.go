@@ -104,6 +104,10 @@ func Build(events []model.Event) (*Graph, error) {
 		if e.Kind == model.KindSpan {
 			for _, faultID := range faultsByService[strings.TrimSpace(e.Service)] {
 				faultEvent := g.Nodes[faultID]
+				targetOperation := strings.TrimSpace(faultEvent.Attributes["target.operation"])
+				if targetOperation != "" && targetOperation != strings.TrimSpace(e.Operation) {
+					continue
+				}
 				if !faultEvent.Timestamp.After(e.Timestamp) {
 					g.Edges = append(g.Edges, Edge{From: faultID, To: id, Kind: EdgeFault})
 					break
