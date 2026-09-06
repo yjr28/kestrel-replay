@@ -45,10 +45,10 @@ func TestMessageDeliveryCanonicalizesGeneratedIdentities(t *testing.T) {
 func TestMessageDeliveryRequiresPublishedMessageIdentity(t *testing.T) {
 	now := time.Now().UTC()
 	sig := MessageDelivery([]model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "published", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now.Add(time.Nanosecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "published", "message.action": "consume"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "audit", Timestamp: now.Add(time.Nanosecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "unrelated", "message.action": "consume"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "analytics", Timestamp: now.Add(time.Nanosecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "   ", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "published", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: now.Add(time.Nanosecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "published", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Timestamp: now.Add(time.Nanosecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "unrelated", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "analytics", Timestamp: now.Add(time.Nanosecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "   ", "message.action": "consume"}},
 	}, "orders.completed")
 
 	if sig.PublishCount != 1 || sig.ConsumeCounts["notification"] != 1 {
@@ -65,10 +65,10 @@ func TestMessageDeliveryRequiresPublishedMessageIdentity(t *testing.T) {
 func TestMessageDelayUsesCorrelatedPublishConsumeTiming(t *testing.T) {
 	now := time.Now().UTC()
 	events := []model.Event{
-		{ID: "publish", Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
-		{ID: "unrelated", Source: model.SourceApplication, Kind: model.KindMessage, Service: "audit", Timestamp: now.Add(5 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "other", "message.action": "consume"}},
-		{ID: "notification", Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
-		{ID: "audit", Source: model.SourceApplication, Kind: model.KindMessage, Service: "audit", Timestamp: now.Add(135 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{ID: "publish", Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "publish"}},
+		{ID: "unrelated", Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Timestamp: now.Add(5 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "other", "message.action": "consume"}},
+		{ID: "notification", Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
+		{ID: "audit", Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Timestamp: now.Add(135 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "generated-a", "message.action": "consume"}},
 	}
 
 	sig := MessageDelay(events, "orders.completed")
@@ -86,8 +86,8 @@ func TestMessageDelayUsesCorrelatedPublishConsumeTiming(t *testing.T) {
 func TestMessageDelayRequiresCorrelatedConsume(t *testing.T) {
 	now := time.Now().UTC()
 	sig := MessageDelay([]model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "a", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "audit", Timestamp: now.Add(time.Second), Attributes: map[string]string{"topic": "orders.completed", "message.id": "b", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "a", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Timestamp: now.Add(time.Second), Attributes: map[string]string{"topic": "orders.completed", "message.id": "b", "message.action": "consume"}},
 	}, "orders.completed")
 	if MeetsMinimumMessageDelay(sig, time.Millisecond) {
 		t.Fatalf("unrelated consume must not satisfy delayed-delivery evidence: %+v", sig)
@@ -97,9 +97,9 @@ func TestMessageDelayRequiresCorrelatedConsume(t *testing.T) {
 func TestMessageDelayWithholdsAmbiguousPublishCorrelation(t *testing.T) {
 	now := time.Now().UTC()
 	sig := MessageDelay([]model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "order", Timestamp: now.Add(10 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "publish"}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: "notification", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "consume"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now, Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "order", Timestamp: now.Add(10 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "publish"}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "notification", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": "orders.completed", "message.id": "reused", "message.action": "consume"}},
 	}, "orders.completed")
 
 	if sig.PublishCount != 2 {
