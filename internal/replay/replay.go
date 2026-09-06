@@ -95,6 +95,10 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
+		service := strings.TrimSpace(event.Service)
+		if service == "" {
+			continue
+		}
 		key := correlationKey(event)
 		if !key.complete() {
 			continue
@@ -102,7 +106,7 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 		if _, ok := uniquePrecedingPublish(publishes[key], event.Timestamp, event.Sequence); !ok {
 			continue
 		}
-		sig.ConsumeCounts[strings.TrimSpace(event.Service)]++
+		sig.ConsumeCounts[service]++
 	}
 	return sig
 }
