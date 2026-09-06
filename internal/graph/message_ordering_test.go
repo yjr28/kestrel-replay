@@ -24,7 +24,7 @@ func TestBuildRequiresPublishEvidenceBeforeConsume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if hasEdge(g, "publish", "consume", EdgeMessage) {
+	if hasMessageEdge(g, "publish", "consume") {
 		t.Fatal("message edge used publish evidence that occurs after consume evidence")
 	}
 }
@@ -46,7 +46,7 @@ func TestBuildRequiresSequenceOrderingForEqualTimestampMessageEvidence(t *testin
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if hasEdge(g, "publish", "consume", EdgeMessage) {
+	if hasMessageEdge(g, "publish", "consume") {
 		t.Fatal("message edge used equal-timestamp publish evidence that is not earlier by sequence")
 	}
 }
@@ -68,14 +68,14 @@ func TestBuildLinksEqualTimestampMessageEvidenceWhenPublishSequenceIsEarlier(t *
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if !hasEdge(g, "publish", "consume", EdgeMessage) {
+	if !hasMessageEdge(g, "publish", "consume") {
 		t.Fatal("expected message edge when equal-timestamp publish evidence is earlier by sequence")
 	}
 }
 
-func hasEdge(g *Graph, from, to string, kind EdgeKind) bool {
+func hasMessageEdge(g *Graph, from, to string) bool {
 	for _, edge := range g.Edges {
-		if edge.From == from && edge.To == to && edge.Kind == kind {
+		if edge.From == from && edge.To == to && edge.Kind == EdgeMessage {
 			return true
 		}
 	}
