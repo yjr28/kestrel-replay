@@ -192,12 +192,15 @@ func uniquePrecedingPublish(publishes []messagePublishEvidence, consumeTime time
 	var match messagePublishEvidence
 	count := 0
 	for _, publish := range publishes {
-		if !messageEvidencePrecedes(publish.timestamp, publish.sequence, consumeTime, consumeSequence) {
+		if messageEvidencePrecedes(publish.timestamp, publish.sequence, consumeTime, consumeSequence) {
+			match = publish
+			count++
+			if count > 1 {
+				return messagePublishEvidence{}, false
+			}
 			continue
 		}
-		match = publish
-		count++
-		if count > 1 {
+		if !messageEvidenceFollows(publish.timestamp, publish.sequence, consumeTime, consumeSequence) {
 			return messagePublishEvidence{}, false
 		}
 	}
@@ -218,6 +221,22 @@ func messageEvidencePrecedes(publishTime time.Time, publishSequence uint64, cons
 		return false
 	}
 	return publishSequence < consumeSequence
+}
+
+func messageEvidenceFollows(publishTime time.Time, publishSequence uint64, consumeTime time.Time, consumeSequence uint64) bool {
+	if publishTime.IsZero() || consumeTime.IsZero() {
+		return false
+	}
+	if publishTime.After(consumeTime) {
+		return true
+	}
+	if !publishTime.Equal(consumeTime) {
+		return false
+	}
+	if publishSequence == 0 || consumeSequence == 0 {
+		return false
+	}
+	return publishSequence > consumeSequence
 }
 
 // MeetsMinimumMessageDelay is a threshold predicate, not an exact timing
