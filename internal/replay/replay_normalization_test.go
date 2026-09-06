@@ -10,8 +10,8 @@ import (
 func TestMessageReplayNormalizesFormattingKeys(t *testing.T) {
 	now := time.Now().UTC()
 	events := []model.Event{
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: " order ", Timestamp: now, Attributes: map[string]string{"topic": " orders.completed ", "message.id": " generated-a ", "message.action": " publish "}},
-		{Source: model.SourceApplication, Kind: model.KindMessage, Service: " notification ", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": " orders.completed ", "message.id": " generated-a ", "message.action": " consume "}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: " trace ", Service: " order ", Timestamp: now, Attributes: map[string]string{"topic": " orders.completed ", "message.id": " generated-a ", "message.action": " publish "}},
+		{Source: model.SourceApplication, Kind: model.KindMessage, TraceID: " trace ", Service: " notification ", Timestamp: now.Add(120 * time.Millisecond), Attributes: map[string]string{"topic": " orders.completed ", "message.id": " generated-a ", "message.action": " consume "}},
 	}
 
 	delivery := MessageDelivery(events, " orders.completed ")
