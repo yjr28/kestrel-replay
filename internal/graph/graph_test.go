@@ -12,8 +12,8 @@ func TestBuildParentAndMessageEdges(t *testing.T) {
 	events := []model.Event{
 		{ID: "p", Sequence: 1, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t", SpanID: "s1", Service: "order", Operation: "create", Timestamp: now},
 		{ID: "c", Sequence: 2, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "t", SpanID: "s2", ParentSpanID: "s1", Service: "inventory", Operation: "check", Timestamp: now.Add(time.Millisecond)},
-		{ID: "m1", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Service: "order", Operation: "publish", Timestamp: now.Add(2 * time.Millisecond), Attributes: map[string]string{"message.id": "x", "message.action": "publish"}},
-		{ID: "m2", Sequence: 4, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Service: "audit", Operation: "consume", Timestamp: now.Add(3 * time.Millisecond), Attributes: map[string]string{"message.id": "x", "message.action": "consume"}},
+		{ID: "m1", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Service: "order", Operation: "publish", Timestamp: now.Add(2 * time.Millisecond), Attributes: map[string]string{"message.id": "x", "message.action": "publish", "topic": "orders.completed"}},
+		{ID: "m2", Sequence: 4, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "t", Service: "audit", Operation: "consume", Timestamp: now.Add(3 * time.Millisecond), Attributes: map[string]string{"message.id": "x", "message.action": "consume", "topic": "orders.completed"}},
 	}
 	g, err := Build(events)
 	if err != nil {
@@ -55,9 +55,9 @@ func TestBuildRejectsAmbiguousSpanIdentityWithinTrace(t *testing.T) {
 func TestBuildWithholdsAmbiguousMessagePublisherEdge(t *testing.T) {
 	now := time.Now()
 	events := []model.Event{
-		{ID: "publish-a", Sequence: 1, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "orders", Operation: "publish", Timestamp: now, Attributes: map[string]string{"message.id": "shared-message", "message.action": "publish"}},
-		{ID: "publish-b", Sequence: 2, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "orders", Operation: "publish", Timestamp: now.Add(time.Millisecond), Attributes: map[string]string{"message.id": "shared-message", "message.action": "publish"}},
-		{ID: "consume", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Operation: "consume", Timestamp: now.Add(2 * time.Millisecond), Attributes: map[string]string{"message.id": "shared-message", "message.action": "consume"}},
+		{ID: "publish-a", Sequence: 1, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "orders", Operation: "publish", Timestamp: now, Attributes: map[string]string{"message.id": "shared-message", "message.action": "publish", "topic": "orders.completed"}},
+		{ID: "publish-b", Sequence: 2, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "orders", Operation: "publish", Timestamp: now.Add(time.Millisecond), Attributes: map[string]string{"message.id": "shared-message", "message.action": "publish", "topic": "orders.completed"}},
+		{ID: "consume", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: "trace", Service: "audit", Operation: "consume", Timestamp: now.Add(2 * time.Millisecond), Attributes: map[string]string{"message.id": "shared-message", "message.action": "consume", "topic": "orders.completed"}},
 	}
 	g, err := Build(events)
 	if err != nil {
