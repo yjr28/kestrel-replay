@@ -21,6 +21,17 @@ func TestDurationOfRejectsMalformedLatencyEvidence(t *testing.T) {
 	}
 }
 
+func TestDurationOfCanonicalizesFormattingWhitespace(t *testing.T) {
+	event := model.Event{Attributes: map[string]string{"duration_us": "  1500\t"}}
+	duration, ok := durationOf(event)
+	if !ok {
+		t.Fatal("formatting-only whitespace must not discard otherwise valid latency evidence")
+	}
+	if duration != 1500*time.Microsecond {
+		t.Fatalf("unexpected canonical duration: got %s want %s", duration, 1500*time.Microsecond)
+	}
+}
+
 func TestRankDivergencesIgnoresMalformedFailingDuration(t *testing.T) {
 	now := time.Now().UTC()
 	healthy := profileSpan("h", "inventory", "check", "ok", 1000, now)
