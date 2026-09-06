@@ -97,7 +97,6 @@ func Build(events []model.Event) (*Graph, error) {
 					g.Edges = append(g.Edges, Edge{From: faultID, To: id, Kind: EdgeFault})
 					break
 				}
-			}
 		}
 	}
 	return g, nil
@@ -120,19 +119,10 @@ type divergenceKey struct {
 	operation string
 }
 
-// EarliestMeaningfulDivergence compares application spans while deliberately
-// ignoring explicit injector events. It first looks for a local latency anomaly
-// because propagated parent errors are usually consequences, then falls back to
-// status/topology changes. Returned event IDs make the selected evidence
-// auditable without changing the conservative selection semantics.
 func EarliestMeaningfulDivergence(healthy, failing []model.Event, latencyThreshold time.Duration) (Divergence, bool) {
 	return earliestMeaningfulDivergence(healthy, failing, latencyThreshold, "")
 }
 
-// EarliestMeaningfulDivergenceForTerminalService uses the externally observed
-// terminal service as an application-evidence anchor after checking for a local
-// latency anomaly. This is useful when a crash removes the target service span
-// entirely. It does not inspect failure-injector events.
 func EarliestMeaningfulDivergenceForTerminalService(healthy, failing []model.Event, latencyThreshold time.Duration, terminalService string) (Divergence, bool) {
 	return earliestMeaningfulDivergence(healthy, failing, latencyThreshold, strings.TrimSpace(terminalService))
 }
@@ -161,11 +151,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			delta = -delta
 		}
 		if latencyThreshold > 0 && delta >= latencyThreshold && (!haveLatency || delta > bestLatency.Delta) {
-			bestLatency = Divergence{
-				Service: key.service, Operation: key.operation, Reason: "latency_delta",
-				HealthyValue: hd.String(), FailingValue: fd.String(), Delta: delta,
-				HealthyEventID: h.ID, FailingEventID: e.ID,
-			}
+			bestLatency = Divergence{Service: key.service, Operation: key.operation, Reason: "latency_delta", HealthyValue: hd.String(), FailingValue: fd.String(), Delta: delta, HealthyEventID: h.ID, FailingEventID: e.ID}
 			haveLatency = true
 		}
 	}
@@ -176,102 +162,47 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 	if terminalService != "" {
 		anchor := "outcome.terminal_service=" + terminalService
 		for _, h := range model.Sorted(healthy) {
-			if h.Kind != model.KindSpan || h.Source != model.SourceApplication {
-				continue
-			}
+			if h.Kind != model.KindSpan || h.Source != model.SourceApplication { continue }
 			key := divergenceKey{service: strings.TrimSpace(h.Service), operation: strings.TrimSpace(h.Operation)}
-			if key.service != terminalService {
-				continue
-			}
+			if key.service != terminalService { continue }
 			indexedHealthy, eligible := healthySpans[key]
-			if !eligible || indexedHealthy.ID != strings.TrimSpace(h.ID) {
-				continue
-			}
-			if _, ambiguous := healthyAmbiguous[key]; ambiguous {
-				continue
-			}
-			if _, ambiguous := failingAmbiguous[key]; ambiguous {
-				continue
-			}
+			if !eligible || indexedHealthy.ID != strings.TrimSpace(h.ID) { continue }
+			if _, ambiguous := healthyAmbiguous[key]; ambiguous { continue }
+			if _, ambiguous := failingAmbiguous[key]; ambiguous { continue }
 			f, ok := failingSpans[key]
-			if !ok {
-				return Divergence{
-					Service: key.service, Operation: key.operation, Reason: "missing_span",
-					HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: indexedHealthy.ID, Anchor: anchor,
-				}, true
-			}
-			healthyStatus := strings.TrimSpace(h.Status)
-			failingStatus := strings.TrimSpace(f.Status)
-			if healthyStatus != "" && failingStatus != "" && healthyStatus != failingStatus {
-				return Divergence{
-					Service: key.service, Operation: key.operation, Reason: "terminal_status_change",
-					HealthyValue: healthyStatus, FailingValue: failingStatus,
-					HealthyEventID: indexedHealthy.ID, FailingEventID: f.ID, Anchor: anchor,
-				}, true
-			}
+			if !ok { return Divergence{Service:key.service, Operation:key.operation, Reason:"missing_span", HealthyValue:h.Status, FailingValue:"missing", HealthyEventID:indexedHealthy.ID, Anchor:anchor}, true }
+			healthyStatus := strings.TrimSpace(h.Status); failingStatus := strings.TrimSpace(f.Status)
+			if healthyStatus != "" && failingStatus != "" && healthyStatus != failingStatus { return Divergence{Service:key.service, Operation:key.operation, Reason:"terminal_status_change", HealthyValue:healthyStatus, FailingValue:failingStatus, HealthyEventID:indexedHealthy.ID, FailingEventID:f.ID, Anchor:anchor}, true }
 		}
 	}
 
 	for _, e := range model.Sorted(failing) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication {
-			continue
-		}
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication { continue }
 		key := divergenceKey{service: strings.TrimSpace(e.Service), operation: strings.TrimSpace(e.Operation)}
 		indexedFailing, eligible := failingSpans[key]
-		if !eligible || indexedFailing.ID != strings.TrimSpace(e.ID) {
-			continue
-		}
-		if _, ambiguous := failingAmbiguous[key]; ambiguous {
-			continue
-		}
-		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
-			continue
-		}
+		if !eligible || indexedFailing.ID != strings.TrimSpace(e.ID) { continue }
+		if _, ambiguous := failingAmbiguous[key]; ambiguous { continue }
+		if _, ambiguous := healthyAmbiguous[key]; ambiguous { continue }
 		h, ok := healthySpans[key]
-		if !ok {
-			return Divergence{
-				Service: key.service, Operation: key.operation, Reason: "unexpected_span",
-				FailingValue: e.Status, FailingEventID: indexedFailing.ID,
-			}, true
-		}
-		healthyStatus := strings.TrimSpace(h.Status)
-		failingStatus := strings.TrimSpace(e.Status)
-		if healthyStatus != "" && failingStatus != "" && healthyStatus != failingStatus {
-			return Divergence{
-				Service: key.service, Operation: key.operation, Reason: "status_change",
-				HealthyValue: healthyStatus, FailingValue: failingStatus,
-				HealthyEventID: h.ID, FailingEventID: indexedFailing.ID,
-			}, true
-		}
+		if !ok { return Divergence{Service:key.service, Operation:key.operation, Reason:"unexpected_span", FailingValue:e.Status, FailingEventID:indexedFailing.ID}, true }
+		healthyStatus := strings.TrimSpace(h.Status); failingStatus := strings.TrimSpace(e.Status)
+		if healthyStatus != "" && failingStatus != "" && healthyStatus != failingStatus { return Divergence{Service:key.service, Operation:key.operation, Reason:"status_change", HealthyValue:healthyStatus, FailingValue:failingStatus, HealthyEventID:h.ID, FailingEventID:indexedFailing.ID}, true }
 	}
 
 	for _, h := range model.Sorted(healthy) {
-		if h.Kind != model.KindSpan || h.Source != model.SourceApplication {
-			continue
-		}
+		if h.Kind != model.KindSpan || h.Source != model.SourceApplication { continue }
 		key := divergenceKey{service: strings.TrimSpace(h.Service), operation: strings.TrimSpace(h.Operation)}
 		indexedHealthy, eligible := healthySpans[key]
-		if !eligible || indexedHealthy.ID != strings.TrimSpace(h.ID) {
-			continue
-		}
-		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
-			continue
-		}
-		if _, ambiguous := failingAmbiguous[key]; ambiguous {
-			continue
-		}
-		if _, ok := failingSpans[key]; !ok {
-			return Divergence{
-				Service: key.service, Operation: key.operation, Reason: "missing_span",
-				HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: indexedHealthy.ID,
-			}, true
-		}
+		if !eligible || indexedHealthy.ID != strings.TrimSpace(h.ID) { continue }
+		if _, ambiguous := healthyAmbiguous[key]; ambiguous { continue }
+		if _, ambiguous := failingAmbiguous[key]; ambiguous { continue }
+		if _, ok := failingSpans[key]; !ok { return Divergence{Service:key.service, Operation:key.operation, Reason:"missing_span", HealthyValue:h.Status, FailingValue:"missing", HealthyEventID:indexedHealthy.ID}, true }
 	}
 	return Divergence{}, false
 }
 
 func durationOf(e model.Event) (time.Duration, bool) {
-	raw := e.Attributes["duration_us"]
+	raw := strings.TrimSpace(e.Attributes["duration_us"])
 	if raw == "" {
 		return 0, false
 	}
