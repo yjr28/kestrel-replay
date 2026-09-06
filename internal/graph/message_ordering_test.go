@@ -73,6 +73,63 @@ func TestBuildLinksEqualTimestampMessageEvidenceWhenPublishSequenceIsEarlier(t *
 	}
 }
 
+func TestBuildScopesPublisherAmbiguityToEvidenceBeforeConsume(t *testing.T) {
+	base := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	earlyPublish := model.Event{
+		ID: "publish-early", Sequence: 1, Source: model.SourceApplication, Kind: model.KindMessage,
+		TraceID: "trace", Service: "producer-a", Timestamp: base,
+		Attributes: map[string]string{"message.id": "m-1", "message.action": "publish", "topic": "orders"},
+	}
+	consume := model.Event{
+		ID: "consume", Sequence: 2, Source: model.SourceApplication, Kind: model.KindMessage,
+		TraceID: "trace", Service: "consumer", Timestamp: base.Add(time.Second),
+		Attributes: map[string]string{"message.id": "m-1", "message.action": "consume", "topic": "orders"},
+	}
+	latePublish := model.Event{
+		ID: "publish-late", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage,
+		TraceID: "trace", Service: "producer-b", Timestamp: base.Add(2 * time.Second),
+		Attributes: map[string]string{"message.id": "m-1", "message.action": "publish", "topic": "orders"},
+	}
+
+	g, err := Build([]model.Event{latePublish, consume, earlyPublish})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !hasMessageEdge(g, "publish-early", "consume") {
+		t.Fatal("later duplicate publish evidence suppressed the unique preceding publisher")
+	}
+	if hasMessageEdge(g, "publish-late", "consume") {
+		t.Fatal("consume linked to publish evidence that occurs after it")
+	}
+}
+
+func TestBuildWithholdsMessageEdgeWhenMultiplePublishersPrecedeConsume(t *testing.T) {
+	base := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	publishA := model.Event{
+		ID: "publish-a", Sequence: 1, Source: model.SourceApplication, Kind: model.KindMessage,
+		TraceID: "trace", Service: "producer-a", Timestamp: base,
+		Attributes: map[string]string{"message.id": "m-1", "message.action": "publish", "topic": "orders"},
+	}
+	publishB := model.Event{
+		ID: "publish-b", Sequence: 2, Source: model.SourceApplication, Kind: model.KindMessage,
+		TraceID: "trace", Service: "producer-b", Timestamp: base.Add(time.Second),
+		Attributes: map[string]string{"message.id": "m-1", "message.action": "publish", "topic": "orders"},
+	}
+	consume := model.Event{
+		ID: "consume", Sequence: 3, Source: model.SourceApplication, Kind: model.KindMessage,
+		TraceID: "trace", Service: "consumer", Timestamp: base.Add(2 * time.Second),
+		Attributes: map[string]string{"message.id": "m-1", "message.action": "consume", "topic": "orders"},
+	}
+
+	g, err := Build([]model.Event{publishA, publishB, consume})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if hasMessageEdge(g, "publish-a", "consume") || hasMessageEdge(g, "publish-b", "consume") {
+		t.Fatal("message edge should be withheld when multiple publishers precede the consume")
+	}
+}
+
 func hasMessageEdge(g *Graph, from, to string) bool {
 	for _, edge := range g.Edges {
 		if edge.From == from && edge.To == to && edge.Kind == EdgeMessage {
