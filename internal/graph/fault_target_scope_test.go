@@ -48,6 +48,38 @@ func TestBuildKeepsServiceCrashFaultEdgesServiceScoped(t *testing.T) {
 	}
 }
 
+func TestBuildRequiresFaultToPrecedeSpanAtEqualTimestamp(t *testing.T) {
+	now := time.Now()
+	events := []model.Event{
+		{ID: "span", Sequence: 1, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "trace", SpanID: "check", Service: "inventory", Operation: "check", Timestamp: now},
+		{ID: "fault", Sequence: 2, Source: model.SourceFault, Kind: model.KindFault, Timestamp: now, Attributes: map[string]string{"fault.kind": "latency", "target.service": "inventory", "target.operation": "check"}},
+	}
+
+	g, err := Build(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasEdge(g.Edges, Edge{From: "fault", To: "span", Kind: EdgeFault}) {
+		t.Fatalf("fault ordered after span at the same timestamp must not create a fault edge: %#v", g.Edges)
+	}
+}
+
+func TestBuildAllowsFaultToPrecedeSpanBySequenceAtEqualTimestamp(t *testing.T) {
+	now := time.Now()
+	events := []model.Event{
+		{ID: "fault", Sequence: 1, Source: model.SourceFault, Kind: model.KindFault, Timestamp: now, Attributes: map[string]string{"fault.kind": "latency", "target.service": "inventory", "target.operation": "check"}},
+		{ID: "span", Sequence: 2, Source: model.SourceApplication, Kind: model.KindSpan, TraceID: "trace", SpanID: "check", Service: "inventory", Operation: "check", Timestamp: now},
+	}
+
+	g, err := Build(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(g.Edges, Edge{From: "fault", To: "span", Kind: EdgeFault}) {
+		t.Fatalf("fault ordered before span by sequence should remain eligible: %#v", g.Edges)
+	}
+}
+
 func hasEdge(edges []Edge, want Edge) bool {
 	for _, edge := range edges {
 		if edge == want {
