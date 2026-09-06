@@ -56,30 +56,30 @@ func TestTerminalEarliestDivergenceRequiresIndexedHealthyEvidence(t *testing.T) 
 	}
 }
 
-func TestEarliestDivergenceRejectsStructurallyInvalidSpanEvidence(t *testing.T) {
+func TestEarliestDivergenceRejectsUntimestampedSpanEvidence(t *testing.T) {
 	now := time.Now().UTC()
 	healthy := []model.Event{profileSpan("h-order", "order", "create", "ok", 1000, now)}
 	invalid := profileSpan("f-inventory", "inventory", "check", "error", 1000, now)
-	invalid.TraceID = "   "
+	invalid.Timestamp = time.Time{}
 	failing := []model.Event{
 		profileSpan("f-order", "order", "create", "ok", 1000, now),
 		invalid,
 	}
 	if divergence, ok := EarliestMeaningfulDivergence(healthy, failing, 20*time.Millisecond); ok {
-		t.Fatalf("structurally invalid span must not become localization evidence, got %+v", divergence)
+		t.Fatalf("untimestamped span must not become localization evidence, got %+v", divergence)
 	}
 }
 
-func TestRankDivergencesRejectsStructurallyInvalidSpanEvidence(t *testing.T) {
+func TestRankDivergencesRejectsUntimestampedSpanEvidence(t *testing.T) {
 	now := time.Now().UTC()
 	healthy := []model.Event{profileSpan("h-order", "order", "create", "ok", 1000, now)}
 	invalid := profileSpan("f-inventory", "inventory", "check", "error", 1000, now)
-	invalid.SpanID = ""
+	invalid.Timestamp = time.Time{}
 	failing := []model.Event{
 		profileSpan("f-order", "order", "create", "ok", 1000, now),
 		invalid,
 	}
 	if candidates := RankDivergences(healthy, failing, 20*time.Millisecond, ""); len(candidates) != 0 {
-		t.Fatalf("structurally invalid span must not become ranked localization evidence, got %+v", candidates)
+		t.Fatalf("untimestamped span must not become ranked localization evidence, got %+v", candidates)
 	}
 }

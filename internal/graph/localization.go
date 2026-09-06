@@ -150,16 +150,16 @@ func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 	return spans
 }
 
-// applicationSpanIndexWithAmbiguity returns only structurally valid application
-// span keys backed by exactly one identified event with a nonblank
-// service/operation key. Duplicate service/operation keys are kept separately so
-// callers can avoid treating an arbitrary retry/duplicate as authoritative
-// evidence while retry semantics remain unmodeled. Event IDs reused by multiple
-// application spans make every otherwise eligible affected localization key
-// ambiguous because a reused canonical ID cannot name one exact supporting span,
-// even when another span with that ID has unusable localization evidence.
-// Formatting-only whitespace cannot create distinct provenance. Callers must not
-// reinterpret invalid or ambiguous evidence as evidence that an affected span is
+// applicationSpanIndexWithAmbiguity returns only timestamped application span
+// keys backed by exactly one identified event with a nonblank service/operation
+// key. Duplicate service/operation keys are kept separately so callers can avoid
+// treating an arbitrary retry/duplicate as authoritative evidence while retry
+// semantics remain unmodeled. Event IDs reused by multiple application spans
+// make every otherwise eligible affected localization key ambiguous because a
+// reused canonical ID cannot name one exact supporting span, even when another
+// span with that ID has unusable localization evidence. Formatting-only
+// whitespace cannot create distinct provenance. Callers must not reinterpret
+// untimestamped or ambiguous evidence as evidence that an affected span is
 // missing or unexpected.
 func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
 	spans := make(map[divergenceKey]model.Event)
@@ -173,10 +173,7 @@ func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]
 	}
 	for _, e := range model.Sorted(events) {
 		eventID := strings.TrimSpace(e.ID)
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || eventID == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
-			continue
-		}
-		if err := e.Validate(); err != nil {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || eventID == "" || e.Timestamp.IsZero() || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
 			continue
 		}
 		e.ID = eventID
