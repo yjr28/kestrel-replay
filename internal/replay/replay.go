@@ -72,6 +72,10 @@ func correlationKey(event model.Event) messageCorrelationKey {
 	}
 }
 
+func (key messageCorrelationKey) complete() bool {
+	return key.traceID != "" && key.messageID != ""
+}
+
 func MessageDelivery(events []model.Event, topic string) MessageDeliverySignature {
 	topic = strings.TrimSpace(topic)
 	sig := MessageDeliverySignature{Topic: topic, ConsumeCounts: map[string]int{}}
@@ -82,7 +86,7 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 		}
 		sig.PublishCount++
 		key := correlationKey(event)
-		if key.messageID == "" {
+		if !key.complete() {
 			continue
 		}
 		publishes[key] = append(publishes[key], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
@@ -92,7 +96,7 @@ func MessageDelivery(events []model.Event, topic string) MessageDeliverySignatur
 			continue
 		}
 		key := correlationKey(event)
-		if key.messageID == "" {
+		if !key.complete() {
 			continue
 		}
 		if _, ok := uniquePrecedingPublish(publishes[key], event.Timestamp, event.Sequence); !ok {
@@ -136,7 +140,7 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		}
 		sig.PublishCount++
 		key := correlationKey(event)
-		if key.messageID == "" {
+		if !key.complete() {
 			continue
 		}
 		publishes[key] = append(publishes[key], messagePublishEvidence{timestamp: event.Timestamp, sequence: event.Sequence})
@@ -147,7 +151,11 @@ func MessageDelay(events []model.Event, topic string) MessageDelaySignature {
 		if event.Source != model.SourceApplication || event.Kind != model.KindMessage || strings.TrimSpace(event.Attributes["topic"]) != topic || strings.TrimSpace(event.Attributes["message.action"]) != "consume" {
 			continue
 		}
-		published, ok := uniquePrecedingPublish(publishes[correlationKey(event)], event.Timestamp, event.Sequence)
+		key := correlationKey(event)
+		if !key.complete() {
+			continue
+		}
+		published, ok := uniquePrecedingPublish(publishes[key], event.Timestamp, event.Sequence)
 		if !ok {
 			continue
 		}
