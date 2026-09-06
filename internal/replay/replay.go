@@ -166,6 +166,9 @@ func uniquePrecedingPublish(publishes []messagePublishEvidence, consumeTime time
 }
 
 func messageEvidencePrecedes(publishTime time.Time, publishSequence uint64, consumeTime time.Time, consumeSequence uint64) bool {
+	if publishTime.IsZero() || consumeTime.IsZero() {
+		return false
+	}
 	if publishTime.Before(consumeTime) {
 		return true
 	}
