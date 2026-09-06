@@ -236,10 +236,10 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 
 // messageFlowCountsWithAmbiguity withholds an entire observable flow key when
 // any otherwise keyable event for that flow reuses canonical application-message
-// event identity or lacks the timestamp required to establish event evidence.
-// Formatting-only whitespace cannot create distinct provenance. A reused event
-// ID or untimestamped keyed event cannot establish an exact multiplicity, and
-// its exclusion must not be reinterpreted as evidence that the flow was absent.
+// event identity or lacks timestamp/trace provenance required by the event schema.
+// Formatting-only whitespace cannot create distinct provenance. Such uncertain
+// evidence cannot establish an exact multiplicity, and its exclusion must not be
+// reinterpreted as evidence that the flow was absent.
 func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string, map[messageFlowKey]struct{}) {
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
@@ -265,7 +265,7 @@ func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]in
 			continue
 		}
 		key := messageFlowKey{topic: topic, action: action, service: service}
-		if event.Timestamp.IsZero() {
+		if event.Timestamp.IsZero() || strings.TrimSpace(event.TraceID) == "" {
 			delete(counts, key)
 			delete(ids, key)
 			ambiguous[key] = struct{}{}
