@@ -98,7 +98,10 @@ func Build(events []model.Event) (*Graph, error) {
 				topic:     strings.TrimSpace(e.Attributes["topic"]),
 			}
 			if publisher, ok := publishers[identity]; ok {
-				g.Edges = append(g.Edges, Edge{From: publisher, To: id, Kind: EdgeMessage})
+				publishEvent := g.Nodes[publisher]
+				if publishEvent.Timestamp.Before(e.Timestamp) || (publishEvent.Timestamp.Equal(e.Timestamp) && publishEvent.Sequence < e.Sequence) {
+					g.Edges = append(g.Edges, Edge{From: publisher, To: id, Kind: EdgeMessage})
+				}
 			}
 		}
 		if e.Kind == model.KindSpan {
