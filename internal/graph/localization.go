@@ -145,13 +145,13 @@ func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 
 // applicationSpanIndexWithAmbiguity returns only timestamped application span
 // keys backed by exactly one identified event with a nonblank service/operation
-// key. Keyed spans that are unidentified or untimestamped make that key
-// ambiguous: discarding them as if absent could manufacture a false missing-span
-// divergence. Duplicate service/operation keys are kept separately so callers
-// can avoid treating an arbitrary retry/duplicate as authoritative evidence while
-// retry semantics remain unmodeled. Event IDs reused by multiple application
-// spans make every otherwise eligible affected localization key ambiguous because
-// a reused canonical ID cannot name one exact supporting span, even when another
+// key. Identified keyed spans that are untimestamped make that key ambiguous:
+// discarding them as if absent could manufacture a false missing-span divergence.
+// Duplicate service/operation keys are kept separately so callers can avoid
+// treating an arbitrary retry/duplicate as authoritative evidence while retry
+// semantics remain unmodeled. Event IDs reused by multiple application spans
+// make every otherwise eligible affected localization key ambiguous because a
+// reused canonical ID cannot name one exact supporting span, even when another
 // span with that ID has unusable localization evidence. Formatting-only
 // whitespace cannot create distinct provenance.
 func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
@@ -168,15 +168,10 @@ func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]
 		eventID := strings.TrimSpace(e.ID)
 		service := strings.TrimSpace(e.Service)
 		operation := strings.TrimSpace(e.Operation)
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || service == "" || operation == "" {
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || eventID == "" || service == "" || operation == "" {
 			continue
 		}
 		key := divergenceKey{service: service, operation: operation}
-		if eventID == "" {
-			delete(spans, key)
-			ambiguous[key] = struct{}{}
-			continue
-		}
 		if e.Timestamp.IsZero() {
 			delete(spans, key)
 			ambiguous[key] = struct{}{}
