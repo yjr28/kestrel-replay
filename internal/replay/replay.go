@@ -176,7 +176,7 @@ func messageEvidencePrecedes(publishTime time.Time, publishSequence uint64, cons
 		return false
 	}
 	if publishSequence == 0 || consumeSequence == 0 {
-		return true
+		return publishSequence == 0 && consumeSequence == 0
 	}
 	return publishSequence < consumeSequence
 }
