@@ -156,24 +156,28 @@ func applicationSpanIndex(events []model.Event) map[divergenceKey]model.Event {
 // treating an arbitrary retry/duplicate as authoritative evidence while retry
 // semantics remain unmodeled. Event IDs reused by multiple application spans
 // make every otherwise eligible affected localization key ambiguous because a
-// reused ID cannot name one exact supporting span, even when another span with
-// that ID has an unusable localization key. Callers must not reinterpret that
-// ambiguity as evidence that an affected span is missing or unexpected.
+// reused canonical ID cannot name one exact supporting span, even when another
+// span with that ID has an unusable localization key. Formatting-only whitespace
+// cannot create distinct provenance. Callers must not reinterpret that ambiguity
+// as evidence that an affected span is missing or unexpected.
 func applicationSpanIndexWithAmbiguity(events []model.Event) (map[divergenceKey]model.Event, map[divergenceKey]struct{}) {
 	spans := make(map[divergenceKey]model.Event)
 	ambiguous := make(map[divergenceKey]struct{})
 	eventIDCounts := make(map[string]int)
 	for _, event := range events {
-		if event.Kind == model.KindSpan && event.Source == model.SourceApplication && strings.TrimSpace(event.ID) != "" {
-			eventIDCounts[event.ID]++
+		eventID := strings.TrimSpace(event.ID)
+		if event.Kind == model.KindSpan && event.Source == model.SourceApplication && eventID != "" {
+			eventIDCounts[eventID]++
 		}
 	}
 	for _, e := range model.Sorted(events) {
-		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || strings.TrimSpace(e.ID) == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
+		eventID := strings.TrimSpace(e.ID)
+		if e.Kind != model.KindSpan || e.Source != model.SourceApplication || eventID == "" || strings.TrimSpace(e.Service) == "" || strings.TrimSpace(e.Operation) == "" {
 			continue
 		}
+		e.ID = eventID
 		key := divergenceKey{service: strings.TrimSpace(e.Service), operation: strings.TrimSpace(e.Operation)}
-		if eventIDCounts[e.ID] != 1 {
+		if eventIDCounts[eventID] != 1 {
 			delete(spans, key)
 			ambiguous[key] = struct{}{}
 			continue
