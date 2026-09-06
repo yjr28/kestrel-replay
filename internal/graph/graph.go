@@ -184,7 +184,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 				continue
 			}
 			indexedHealthy, eligible := healthySpans[key]
-			if !eligible || indexedHealthy.ID != h.ID {
+			if !eligible || indexedHealthy.ID != strings.TrimSpace(h.ID) {
 				continue
 			}
 			if _, ambiguous := healthyAmbiguous[key]; ambiguous {
@@ -197,7 +197,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			if !ok {
 				return Divergence{
 					Service: key.service, Operation: key.operation, Reason: "missing_span",
-					HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: h.ID, Anchor: anchor,
+					HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: indexedHealthy.ID, Anchor: anchor,
 				}, true
 			}
 			healthyStatus := strings.TrimSpace(h.Status)
@@ -206,7 +206,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 				return Divergence{
 					Service: key.service, Operation: key.operation, Reason: "terminal_status_change",
 					HealthyValue: healthyStatus, FailingValue: failingStatus,
-					HealthyEventID: h.ID, FailingEventID: f.ID, Anchor: anchor,
+					HealthyEventID: indexedHealthy.ID, FailingEventID: f.ID, Anchor: anchor,
 				}, true
 			}
 		}
@@ -218,7 +218,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		}
 		key := divergenceKey{service: strings.TrimSpace(e.Service), operation: strings.TrimSpace(e.Operation)}
 		indexedFailing, eligible := failingSpans[key]
-		if !eligible || indexedFailing.ID != e.ID {
+		if !eligible || indexedFailing.ID != strings.TrimSpace(e.ID) {
 			continue
 		}
 		if _, ambiguous := failingAmbiguous[key]; ambiguous {
@@ -231,7 +231,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		if !ok {
 			return Divergence{
 				Service: key.service, Operation: key.operation, Reason: "unexpected_span",
-				FailingValue: e.Status, FailingEventID: e.ID,
+				FailingValue: e.Status, FailingEventID: indexedFailing.ID,
 			}, true
 		}
 		healthyStatus := strings.TrimSpace(h.Status)
@@ -240,7 +240,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 			return Divergence{
 				Service: key.service, Operation: key.operation, Reason: "status_change",
 				HealthyValue: healthyStatus, FailingValue: failingStatus,
-				HealthyEventID: h.ID, FailingEventID: e.ID,
+				HealthyEventID: h.ID, FailingEventID: indexedFailing.ID,
 			}, true
 		}
 	}
@@ -251,7 +251,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		}
 		key := divergenceKey{service: strings.TrimSpace(h.Service), operation: strings.TrimSpace(h.Operation)}
 		indexedHealthy, eligible := healthySpans[key]
-		if !eligible || indexedHealthy.ID != h.ID {
+		if !eligible || indexedHealthy.ID != strings.TrimSpace(h.ID) {
 			continue
 		}
 		if _, ambiguous := healthyAmbiguous[key]; ambiguous {
@@ -263,7 +263,7 @@ func earliestMeaningfulDivergence(healthy, failing []model.Event, latencyThresho
 		if _, ok := failingSpans[key]; !ok {
 			return Divergence{
 				Service: key.service, Operation: key.operation, Reason: "missing_span",
-				HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: h.ID,
+				HealthyValue: h.Status, FailingValue: "missing", HealthyEventID: indexedHealthy.ID,
 			}, true
 		}
 	}
