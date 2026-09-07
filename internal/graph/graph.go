@@ -92,7 +92,7 @@ func Build(events []model.Event) (*Graph, error) {
 			ambiguous := false
 			for _, publisher := range publishers[identity] {
 				publishEvent := g.Nodes[publisher]
-				precedes := publishEvent.Timestamp.Before(e.Timestamp) || (publishEvent.Timestamp.Equal(e.Timestamp) && publishEvent.Sequence < e.Sequence)
+				precedes := publishEvent.Timestamp.Before(e.Timestamp) || (publishEvent.Timestamp.Equal(e.Timestamp) && publishEvent.Sequence != 0 && e.Sequence != 0 && publishEvent.Sequence < e.Sequence)
 				if !precedes {
 					continue
 				}
