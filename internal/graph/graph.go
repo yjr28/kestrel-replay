@@ -92,15 +92,18 @@ func Build(events []model.Event) (*Graph, error) {
 			ambiguous := false
 			for _, publisher := range publishers[identity] {
 				publishEvent := g.Nodes[publisher]
-				precedes := publishEvent.Timestamp.Before(e.Timestamp) || (publishEvent.Timestamp.Equal(e.Timestamp) && publishEvent.Sequence != 0 && e.Sequence != 0 && publishEvent.Sequence < e.Sequence)
-				if !precedes {
+				if messageEventPrecedes(publishEvent, e) {
+					if eligiblePublisher != "" {
+						ambiguous = true
+						break
+					}
+					eligiblePublisher = publisher
 					continue
 				}
-				if eligiblePublisher != "" {
+				if !messageEventFollows(publishEvent, e) {
 					ambiguous = true
 					break
 				}
-				eligiblePublisher = publisher
 			}
 			if eligiblePublisher != "" && !ambiguous {
 				g.Edges = append(g.Edges, Edge{From: eligiblePublisher, To: id, Kind: EdgeMessage})
@@ -125,6 +128,26 @@ func Build(events []model.Event) (*Graph, error) {
 		}
 	}
 	return g, nil
+}
+
+func messageEventPrecedes(publish, consume model.Event) bool {
+	if publish.Timestamp.Before(consume.Timestamp) {
+		return true
+	}
+	if !publish.Timestamp.Equal(consume.Timestamp) || publish.Sequence == 0 || consume.Sequence == 0 {
+		return false
+	}
+	return publish.Sequence < consume.Sequence
+}
+
+func messageEventFollows(publish, consume model.Event) bool {
+	if publish.Timestamp.After(consume.Timestamp) {
+		return true
+	}
+	if !publish.Timestamp.Equal(consume.Timestamp) || publish.Sequence == 0 || consume.Sequence == 0 {
+		return false
+	}
+	return publish.Sequence > consume.Sequence
 }
 
 type Divergence struct {
