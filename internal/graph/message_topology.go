@@ -41,7 +41,9 @@ type MessageFlowBaseline struct {
 // healthy runs. Missing events in a run contribute a count of zero so optional
 // flows remain represented by a wider healthy envelope instead of disappearing.
 // Keys whose multiplicity is ambiguous in any healthy run are remembered as
-// observed but are withheld from baseline comparison.
+// observed but are withheld from baseline comparison. Recognizable healthy flow
+// keys that lack correlation identity are also remembered as observed, but they
+// do not contribute multiplicity evidence.
 type MessageTopologyProfile struct {
 	RunCount  int
 	baselines map[messageFlowKey]MessageFlowBaseline
@@ -79,6 +81,9 @@ func BuildMessageTopologyProfile(runs [][]model.Event) (MessageTopologyProfile, 
 		perRunCounts = append(perRunCounts, counts)
 		perRunEventIDs = append(perRunEventIDs, eventIDs)
 		perRunAmbiguous = append(perRunAmbiguous, ambiguous)
+		for key := range recognizableMessageFlowKeys(run) {
+			observed[key] = struct{}{}
+		}
 		for key := range counts {
 			allKeys[key] = struct{}{}
 			observed[key] = struct{}{}
@@ -232,6 +237,23 @@ func cloneMessageFlowRunEvidence(in []MessageFlowRunEvidence) []MessageFlowRunEv
 func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string) {
 	counts, ids, _ := messageFlowCountsWithAmbiguity(events)
 	return counts, ids
+}
+
+func recognizableMessageFlowKeys(events []model.Event) map[messageFlowKey]struct{} {
+	keys := make(map[messageFlowKey]struct{})
+	for _, event := range events {
+		if event.Source != model.SourceApplication || event.Kind != model.KindMessage {
+			continue
+		}
+		topic := strings.TrimSpace(event.Attributes["topic"])
+		action := strings.TrimSpace(event.Attributes["message.action"])
+		service := strings.TrimSpace(event.Service)
+		if topic == "" || service == "" || (action != "publish" && action != "consume") {
+			continue
+		}
+		keys[messageFlowKey{topic: topic, action: action, service: service}] = struct{}{}
+	}
+	return keys
 }
 
 // messageFlowCountsWithAmbiguity withholds an entire observable flow key when
