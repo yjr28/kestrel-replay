@@ -236,10 +236,10 @@ func messageFlowCounts(events []model.Event) (map[messageFlowKey]int, map[messag
 
 // messageFlowCountsWithAmbiguity withholds an entire observable flow key when
 // any otherwise keyable event for that flow reuses canonical application-message
-// event identity or lacks message identity, timestamp, or trace provenance required
-// by the event schema. Formatting-only whitespace cannot create distinct provenance.
-// Such uncertain evidence cannot establish an exact multiplicity, and its exclusion
-// must not be reinterpreted as evidence that the flow was absent.
+// event identity or lacks timestamp/trace provenance required by the event schema.
+// Formatting-only whitespace cannot create distinct provenance. Such uncertain
+// evidence cannot establish an exact multiplicity, and its exclusion must not be
+// reinterpreted as evidence that the flow was absent.
 func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]int, map[messageFlowKey][]string, map[messageFlowKey]struct{}) {
 	counts := make(map[messageFlowKey]int)
 	ids := make(map[messageFlowKey][]string)
@@ -261,11 +261,11 @@ func messageFlowCountsWithAmbiguity(events []model.Event) (map[messageFlowKey]in
 		messageID := strings.TrimSpace(event.Attributes["message.id"])
 		action := strings.TrimSpace(event.Attributes["message.action"])
 		service := strings.TrimSpace(event.Service)
-		if topic == "" || service == "" || (action != "publish" && action != "consume") {
+		if topic == "" || messageID == "" || service == "" || (action != "publish" && action != "consume") {
 			continue
 		}
 		key := messageFlowKey{topic: topic, action: action, service: service}
-		if messageID == "" || event.Timestamp.IsZero() || strings.TrimSpace(event.TraceID) == "" {
+		if event.Timestamp.IsZero() || strings.TrimSpace(event.TraceID) == "" {
 			delete(counts, key)
 			delete(ids, key)
 			ambiguous[key] = struct{}{}
