@@ -153,3 +153,12 @@ func TestEventCanonicalKeyNormalizesFormattingWhitespace(t *testing.T) {
 		t.Fatalf("expected formatting-only whitespace to preserve canonical identity: got %q want %q", got, want)
 	}
 }
+
+func TestEventCanonicalKeyFramesFieldsUnambiguously(t *testing.T) {
+	a := Event{Kind: KindSpan, Service: "order|create", Operation: "checkout", Status: "error"}
+	b := Event{Kind: KindSpan, Service: "order", Operation: "create|checkout", Status: "error"}
+
+	if a.CanonicalKey() == b.CanonicalKey() {
+		t.Fatalf("different semantic fields must not collapse to the same canonical key: %q", a.CanonicalKey())
+	}
+}
