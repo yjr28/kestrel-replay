@@ -162,3 +162,12 @@ func TestEventCanonicalKeyFramesFieldsUnambiguously(t *testing.T) {
 		t.Fatalf("different semantic fields must not collapse to the same canonical key: %q", a.CanonicalKey())
 	}
 }
+
+func TestEventCanonicalKeyPreservesSourceProvenance(t *testing.T) {
+	application := Event{Source: SourceApplication, Kind: KindSpan, Service: "order", Operation: "create", Status: "error"}
+	replayed := Event{Source: SourceReplay, Kind: KindSpan, Service: "order", Operation: "create", Status: "error"}
+
+	if application.CanonicalKey() == replayed.CanonicalKey() {
+		t.Fatalf("events from different evidence sources must not collapse to the same canonical key: %q", application.CanonicalKey())
+	}
+}
