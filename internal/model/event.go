@@ -110,7 +110,17 @@ func (e Event) Validate() error {
 
 // CanonicalKey deliberately excludes timestamps and generated IDs so executions can be compared.
 func (e Event) CanonicalKey() string {
-	return fmt.Sprintf("%s|%s|%s|%s", e.Kind, strings.TrimSpace(e.Service), strings.TrimSpace(e.Operation), strings.TrimSpace(e.Status))
+	fields := []string{
+		string(e.Kind),
+		strings.TrimSpace(e.Service),
+		strings.TrimSpace(e.Operation),
+		strings.TrimSpace(e.Status),
+	}
+	var key strings.Builder
+	for _, field := range fields {
+		_, _ = fmt.Fprintf(&key, "%d:%s", len(field), field)
+	}
+	return key.String()
 }
 
 func Sorted(events []Event) []Event {
