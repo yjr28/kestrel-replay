@@ -2,8 +2,8 @@ package replay
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"time"
 
@@ -20,9 +20,18 @@ type OutcomeSignature struct {
 
 func (o OutcomeSignature) Digest() string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\n%d\n%s\n%s\n", o.Classification, o.HTTPStatus, o.TerminalService, o.ErrorCode)
+	writeString := func(value string) {
+		_ = binary.Write(h, binary.BigEndian, uint64(len(value)))
+		_, _ = h.Write([]byte(value))
+	}
+
+	writeString(o.Classification)
+	_ = binary.Write(h, binary.BigEndian, int64(o.HTTPStatus))
+	writeString(o.TerminalService)
+	writeString(o.ErrorCode)
+	_ = binary.Write(h, binary.BigEndian, uint64(len(o.CausalPath)))
 	for _, p := range o.CausalPath {
-		fmt.Fprintln(h, p)
+		writeString(p)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
