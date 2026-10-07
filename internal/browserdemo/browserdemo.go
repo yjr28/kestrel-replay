@@ -127,6 +127,16 @@ func makeRun(spec *fault.Spec) (Run, time.Duration, error) {
 			break
 		}
 	}
+	if !failed {
+		seq++
+		messageID := "msg-browser-001"
+		events = append(events, model.Event{ID: fmt.Sprintf("event-%03d", seq), Sequence: seq, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: trace, SpanID: "span-004", CorrelationID: req, Service: "order", Operation: "order_completed", Timestamp: base.Add(time.Duration(elapsed) * time.Millisecond), Status: "ok", Attributes: map[string]string{"message.id": messageID, "message.action": "publish", "topic": "orders.completed"}})
+		for _, worker := range []string{"notification", "audit", "analytics"} {
+			seq++
+			events = append(events, model.Event{ID: fmt.Sprintf("event-%03d", seq), Sequence: seq, Source: model.SourceApplication, Kind: model.KindMessage, TraceID: trace, ParentSpanID: "span-004", CorrelationID: req, Service: worker, Operation: "order_completed", Timestamp: base.Add(time.Duration(elapsed+int(seq)) * time.Millisecond), Status: "ok", Attributes: map[string]string{"message.id": messageID, "message.action": "consume", "topic": "orders.completed"}})
+		}
+	}
+
 	outcome := replay.OutcomeSignature{}
 	if failed {
 		outcome = replay.OutcomeSignature{Classification: "distributed_failure", HTTPStatus: 504, TerminalService: "inventory", ErrorCode: "inventory_timeout", CausalPath: []string{"gateway", "auth", "account", "order", "inventory"}}
