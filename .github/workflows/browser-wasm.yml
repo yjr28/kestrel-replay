@@ -37,7 +37,7 @@ jobs:
           sha256sum web/kestrel.wasm > web/kestrel.wasm.sha256
       - name: Commit generated runtime
         run: |
-          if git diff --quiet -- web/kestrel.wasm web/wasm_exec.js web/kestrel.wasm.sha256; then
+          if [ -z "$(git status --porcelain -- web/kestrel.wasm web/wasm_exec.js web/kestrel.wasm.sha256)" ]; then
             echo "Browser runtime already current."
             exit 0
           fi
