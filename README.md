@@ -1,4 +1,4 @@
-# Kestrel — Deterministic Failure Replay for Distributed Systems
+\n**Live demo:** https://yjr28.github.io/yjr28profile/projects/kestrel/\n# Kestrel — Deterministic Failure Replay for Distributed Systems
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
