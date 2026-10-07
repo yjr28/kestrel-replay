@@ -1,4 +1,4 @@
-\n**Live demo:** https://yjr28.github.io/yjr28profile/projects/kestrel/\n# Kestrel — Deterministic Failure Replay for Distributed Systems
+\n**Live demo:** https://yjr28.github.io/yjr28profile/projects/kestrel/\n\nThe live page runs a Go/WebAssembly browser adapter that imports Kestrel's real `fault`, `graph`, `model`, and `replay` packages. The browser adapter replaces the local TCP socket layer, then exposes the generated event stream, divergence result, and replay-equivalence decision interactively.\n# Kestrel — Deterministic Failure Replay for Distributed Systems
 
 Kestrel is a distributed-systems flight recorder and replay project. Its goal is to correlate application traces with low-level runtime/network evidence, reconstruct causal execution graphs, identify where failing executions first diverge from healthy ones, and replay the classes of failures for which the recorded evidence is sufficient.
 
