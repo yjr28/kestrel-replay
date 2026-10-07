@@ -1,0 +1,48 @@
+name: Build browser runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/kestrel-wasm/**'
+      - 'internal/browserdemo/**'
+      - 'internal/fault/**'
+      - 'internal/graph/**'
+      - 'internal/model/**'
+      - 'internal/replay/**'
+      - 'go.mod'
+      - '.github/workflows/browser-wasm.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Test browser core
+        run: go test ./internal/browserdemo
+      - name: Compile WebAssembly
+        run: |
+          mkdir -p web
+          GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o web/kestrel.wasm ./cmd/kestrel-wasm
+          cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" web/wasm_exec.js
+          sha256sum web/kestrel.wasm > web/kestrel.wasm.sha256
+      - name: Commit generated runtime
+        run: |
+          if git diff --quiet -- web/kestrel.wasm web/wasm_exec.js web/kestrel.wasm.sha256; then
+            echo "Browser runtime already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/kestrel.wasm web/wasm_exec.js web/kestrel.wasm.sha256
+          git commit -m "Build Kestrel browser runtime [skip ci]"
+          git push
